@@ -1,6 +1,3 @@
-Thanks for the clarification! Here's the exact `README.md` file for your **thirav.ai** project using **Express.js**:
-
-```markdown
 # thirav.ai - OAuth Authentication with Google, GitHub, and LinkedIn
 
 This project demonstrates **OAuth 2.0** authentication with **Google**, **GitHub**, and **LinkedIn** using **Passport.js** in an **Express.js** application. Users can sign in with their Google, GitHub, or LinkedIn accounts, and view their profile information.
@@ -104,6 +101,5 @@ Feel free to fork this repository, create issues, and submit pull requests for a
 ## License
 
 This project is licensed under the MIT License – see the [LICENSE](LICENSE) file for details.
-```
 
 ---
