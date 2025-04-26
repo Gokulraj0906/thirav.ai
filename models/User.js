@@ -14,7 +14,7 @@ const userSchema = new Schema({
   password: {
     type: String,
     required: function() {
-      return this.googleId == null && this.githubId == null && this.linkedinId == null; // Only require password if not OAuth
+      return this.googleId == null && this.githubId == null && this.linkedinId == null;
     }
   },
   googleId: String,

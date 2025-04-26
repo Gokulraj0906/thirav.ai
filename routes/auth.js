@@ -57,7 +57,6 @@ router.patch('/update-username', (req, res) => {
     return res.status(401).json({ message: 'You must be logged in to update your username.' });
   }
 
-  // Update the username
   req.user.username = newUsername;
   req.user.save()
     .then(updatedUser => {
@@ -89,9 +88,9 @@ router.get('/linkedin/callback',
   (req, res) => res.redirect('/dashboard')
 );
 
-// **Logout**
+//Logout
 router.get('/logout', (req, res) => {
-  req.logout(() => res.redirect('/'));
+  req.logout(() => res.redirect('/'))
 });
 
 module.exports = router;
