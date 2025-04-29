@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course View</title>
+</head>
+<body>
+    <h1>Search for a Course</h1>
+    <input type="text" id="course-title" placeholder="Enter course title">
+    <button onclick="searchCourse()">Search</button>
+
+    <div id="course-details"></div>
+
+    <script>
+        function searchCourse() {
+            const title = encodeURIComponent(document.getElementById('course-title').value.trim());
+
+            fetch(`/course/details/by-title/${title}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        document.getElementById('course-details').innerHTML = `<p>${data.error}</p>`;
+                    } else {
+                        // Display course details
+                        let courseHTML = `
+                            <h2>${data.title}</h2>
+                            <p>${data.description}</p>
+                            <h3>Videos:</h3>
+                            <ul>
+                        `;
+                        
+                        data.videos.forEach(video => {
+                            courseHTML += `
+                                <li>
+                                    <h4>${video.title}</h4>
+                                    <p>${video.description}</p>
+                                    <video width="320" height="240" controls>
+                                        <source src="${video.url}" type="video/mp4">
+                                        Your browser does not support the video tag.
+                                    </video>
+                                    <p>Duration: ${video.duration} minutes</p>
+                                </li>
+                            `;
+                        });
+
+                        courseHTML += `</ul>`;
+                        courseHTML += `<p>Total Duration: ${data.totalMinutes} minutes</p>`;
+                        
+                        document.getElementById('course-details').innerHTML = courseHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching course:', error);
+                    document.getElementById('course-details').innerHTML = '<p>Error fetching course details</p>';
+                });
+        }
+    </script>
+</body>
+</html>

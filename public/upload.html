@@ -2,23 +2,261 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Upload Video</title>
+  <title>Course Upload - thirav.ai</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    .video-entry {
+      position: relative;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 15px;
+      margin-bottom: 15px;
+    }
+    #loginMessage {
+      display: none;
+    }
+  </style>
 </head>
 <body>
-  <h1>Upload a Video</h1>
+  <div class="container py-5">
+    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="/">thirav.ai</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav">
+            <li class="nav-item">
+              <a class="nav-link" href="/">Home</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="/dashboard">Dashboard</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link active" href="/upload.html">Upload Course</a>
+            </li>
+          </ul>
+          <ul class="navbar-nav ms-auto">
+            <li class="nav-item">
+              <a class="nav-link" href="/auth/logout" id="logoutLink" style="display: none;">Logout</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="login.html" id="loginLink">Login</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
 
-  <form action="/video/upload" method="POST" enctype="multipart/form-data">
-    <label for="title">Video Title:</label><br>
-    <input type="text" id="title" name="title" required><br><br>
+    <div id="loginMessage" class="alert alert-warning">
+      You need to <a href="login.html">log in</a> to upload courses.
+    </div>
 
-    <label for="description">Description:</label><br>
-    <textarea id="description" name="description" rows="4" cols="50"></textarea><br><br>
+    <div id="uploadContainer">
+      <h1 class="text-center mb-4">Upload New Course</h1>
 
-    <label for="video">Choose Video File:</label><br>
-    <input type="file" id="video" name="video" accept="video/*" required><br><br>
+      <!-- Course Upload Form -->
+      <div class="card mb-5">
+        <div class="card-header bg-primary text-white">
+          <h4 class="mb-0">Course Details</h4>
+        </div>
+        <div class="card-body">
+          <form id="courseUploadForm" enctype="multipart/form-data">
+            <div class="mb-3">
+              <label for="courseTitle" class="form-label">Course Title</label>
+              <input type="text" class="form-control" id="courseTitle" name="courseTitle" required>
+            </div>
+            <div class="mb-3">
+              <label for="courseDescription" class="form-label">Course Description</label>
+              <textarea class="form-control" id="courseDescription" name="courseDescription" rows="3"></textarea>
+            </div>
 
-    <button type="submit">Upload</button>
-  </form>
+            <div class="mb-3">
+              <label class="form-label">Videos</label>
+              <div id="videoFields">
+                <div class="video-entry">
+                  <div class="mb-3">
+                    <label class="form-label">Video Title</label>
+                    <input type="text" class="form-control video-title" required>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Video Description</label>
+                    <textarea class="form-control video-description" rows="2"></textarea>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Duration (minutes)</label>
+                    <input type="number" class="form-control video-duration" min="1" required>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Video File</label>
+                    <input type="file" class="form-control video-file" accept="video/*" required>
+                  </div>
+                </div>
+              </div>
+              <button type="button" class="btn btn-outline-secondary" id="addVideoBtn">
+                <i class="bi bi-plus-circle"></i> Add Another Video
+              </button>
+            </div>
 
+            <div class="mt-4">
+              <button type="submit" class="btn btn-primary w-100">Upload Course</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <h2 class="mb-4">Your Courses</h2>
+      <div id="courseList" class="row gy-4">
+        <div class="col-12 text-center">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p>Loading courses...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // Add a new video entry
+document.getElementById('addVideoBtn').addEventListener('click', function() {
+  const videoFields = document.getElementById('videoFields');
+  const newVideoEntry = document.createElement('div');
+  newVideoEntry.className = 'video-entry';
+  newVideoEntry.innerHTML = `
+    <div class="mb-3">
+      <label class="form-label">Video Title</label>
+      <input type="text" class="form-control video-title" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Video Description</label>
+      <textarea class="form-control video-description" rows="2"></textarea>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Duration (minutes)</label>
+      <input type="number" class="form-control video-duration" min="1" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Video File</label>
+      <input type="file" class="form-control video-file" accept="video/*" required>
+    </div>
+    <button type="button" class="btn btn-danger btn-sm removeVideoBtn mt-2">Remove</button>
+  `;
+  videoFields.appendChild(newVideoEntry);
+
+  // Add event listener for remove button
+  newVideoEntry.querySelector('.removeVideoBtn').addEventListener('click', function() {
+    newVideoEntry.remove();
+  });
+});
+
+// Submit course form
+document.getElementById('courseUploadForm').addEventListener('submit', async function(event) {
+  event.preventDefault();
+
+  const courseTitle = document.getElementById('courseTitle').value;
+  const courseDescription = document.getElementById('courseDescription').value;
+
+  const videoTitles = [];
+  const videoDescriptions = [];
+  const videoDurations = [];
+  const videoFiles = [];
+
+  document.querySelectorAll('.video-entry').forEach(entry => {
+    videoTitles.push(entry.querySelector('.video-title').value);
+    videoDescriptions.push(entry.querySelector('.video-description').value);
+    videoDurations.push(entry.querySelector('.video-duration').value);
+    videoFiles.push(entry.querySelector('.video-file').files[0]);
+  });
+
+  const formData = new FormData();
+  formData.append('courseTitle', courseTitle);
+  formData.append('courseDescription', courseDescription);
+  formData.append('videoTitles', JSON.stringify(videoTitles));
+  formData.append('videoDescriptions', JSON.stringify(videoDescriptions));
+  formData.append('durations', JSON.stringify(videoDurations));
+  videoFiles.forEach(file => formData.append('videos', file));
+
+  try {
+    const response = await fetch('/course/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    const result = await response.json();
+    if (response.ok) {
+      alert('Course uploaded successfully!');
+      location.reload();
+    } else {
+      alert('Upload failed: ' + result.message);
+    }
+  } catch (error) {
+    console.error('Error uploading course:', error);
+    alert('An error occurred while uploading.');
+  }
+});
+
+// Check login status
+async function checkLoginStatus() {
+  try {
+    const response = await fetch('/auth/status');
+    const data = await response.json();
+
+    if (data.isLoggedIn) {
+      document.getElementById('loginLink').style.display = 'none';
+      document.getElementById('logoutLink').style.display = 'block';
+      document.getElementById('loginMessage').style.display = 'none';
+      document.getElementById('uploadContainer').style.display = 'block';
+    } else {
+      document.getElementById('loginLink').style.display = 'block';
+      document.getElementById('logoutLink').style.display = 'none';
+      document.getElementById('loginMessage').style.display = 'block';
+      document.getElementById('uploadContainer').style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Error checking login status:', error);
+  }
+}
+
+// Load existing courses
+async function loadCourses() {
+  try {
+    const res = await fetch('/course');
+    const courses = await res.json();
+
+    const courseList = document.getElementById('courseList');
+    courseList.innerHTML = '';
+
+    if (courses.length === 0) {
+      courseList.innerHTML = '<p class="text-center">No courses uploaded yet.</p>';
+      return;
+    }
+
+    courses.forEach(course => {
+      const div = document.createElement('div');
+      div.className = 'col-md-4';
+      div.innerHTML = `
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title">${course.title}</h5>
+            <p class="card-text">${course.description || ''}</p>
+            <p class="text-muted">Total Minutes: ${course.totalMinutes}</p>
+            <a href="/course/${course._id}" class="btn btn-primary">View Course</a>
+          </div>
+        </div>
+      `;
+      courseList.appendChild(div);
+    });
+  } catch (err) {
+    console.error('Error loading courses:', err);
+  }
+}
+
+checkLoginStatus();
+loadCourses();
+  </script>
 </body>
 </html>

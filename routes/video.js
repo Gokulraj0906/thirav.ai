@@ -7,21 +7,21 @@ const Video = require('../models/Video');
 // Set storage for multer
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/'); // Save files inside uploads/
+    cb(null, 'uploads/'); 
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname)); // Save with unique filename
+    cb(null, uniqueSuffix + path.extname(file.originalname)); 
   }
 });
 
 const upload = multer({ storage: storage });
 
-// ---- NEW Upload route ----
+
 router.post('/upload', upload.single('video'), async (req, res) => {
   try {
     const { title, description } = req.body;
-    const fileUrl = `/uploads/${req.file.filename}`; // Path to access the uploaded file
+    const fileUrl = `/uploads/${req.file.filename}`; 
 
     const newVideo = new Video({
       title,
@@ -39,7 +39,6 @@ router.post('/upload', upload.single('video'), async (req, res) => {
 });
 
 
-// Your old update route
 router.patch('/update/:id', async (req, res) => {
   const { title, description, url } = req.body;
   const { id } = req.params;
@@ -56,6 +55,16 @@ router.patch('/update/:id', async (req, res) => {
     }
 
     res.status(200).json({ message: 'Video updated successfully', video: updatedVideo });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err });
+  }
+});
+
+router.get('/', async (req, res) => {
+  try {
+    const videos = await Video.find().sort({ title: 1 }); 
+    res.status(200).json(videos);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error', error: err });
