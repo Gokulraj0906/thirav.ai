@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Course Upload - thirav.ai</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     .video-entry {
@@ -27,36 +28,30 @@
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
           <ul class="navbar-nav">
-            <li class="nav-item">
-              <a class="nav-link" href="/">Home</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link" href="/dashboard">Dashboard</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link active" href="/upload.html">Upload Course</a>
-            </li>
+            <li class="nav-item"><a class="nav-link" href="/">Home</a></li>
+            <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link active" href="/upload.html">Upload Course</a></li>
           </ul>
           <ul class="navbar-nav ms-auto">
             <li class="nav-item">
-              <a class="nav-link" href="/auth/logout" id="logoutLink" style="display: none;">Logout</a>
+              <a class="nav-link" href="#" id="logoutLink" style="display: none;">Logout</a>
             </li>
             <li class="nav-item">
-              <a class="nav-link" href="/auth/google" id="loginLink">Login</a>
+              <a class="nav-link" href="/auth/google" id="loginLink">Login with Google</a>
             </li>
           </ul>
         </div>
       </div>
     </nav>
-    
+
     <div id="loginMessage" class="alert alert-warning">
       You need to <a href="login.html">log in</a> to upload courses.
     </div>
-    
+
     <div id="uploadContainer">
       <h1 class="text-center mb-4">Upload New Course</h1>
-      
-      <!-- Course Upload Form -->
+
+      <!-- Upload Form -->
       <div class="card mb-5">
         <div class="card-header bg-primary text-white">
           <h4 class="mb-0">Course Details</h4>
@@ -71,7 +66,7 @@
               <label for="courseDescription" class="form-label">Course Description</label>
               <textarea class="form-control" id="courseDescription" name="courseDescription" rows="3"></textarea>
             </div>
-            
+
             <div class="mb-3">
               <label class="form-label">Videos</label>
               <div id="videoFields">
@@ -94,24 +89,20 @@
                   </div>
                 </div>
               </div>
-              <button type="button" class="btn btn-outline-secondary" id="addVideoBtn">
-                <i class="bi bi-plus-circle"></i> Add Another Video
-              </button>
+              <button type="button" class="btn btn-outline-secondary" id="addVideoBtn">Add Another Video</button>
             </div>
-            
+
             <div class="mt-4">
               <button type="submit" class="btn btn-primary w-100">Upload Course</button>
             </div>
           </form>
         </div>
       </div>
-      
+
       <h2 class="mb-4">Your Courses</h2>
       <div id="courseList" class="row gy-4">
         <div class="col-12 text-center">
-          <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
-          </div>
+          <div class="spinner-border text-primary" role="status"></div>
           <p>Loading courses...</p>
         </div>
       </div>
@@ -120,32 +111,45 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    // Check if user is logged in
-    async function checkLoginStatus() {
+    function parseJwt(token) {
       try {
-        const response = await fetch('/isLoggedIn');
-        const data = await response.json();
-        
-        if (data.isLoggedIn) {
-          // User is logged in
-          document.getElementById('loginLink').style.display = 'none';
-          document.getElementById('logoutLink').style.display = 'block';
-          document.getElementById('loginMessage').style.display = 'none';
-          document.getElementById('uploadContainer').style.display = 'block';
-        } else {
-          // User is not logged in
-          document.getElementById('loginLink').style.display = 'block';
-          document.getElementById('logoutLink').style.display = 'none';
-          document.getElementById('loginMessage').style.display = 'block';
-          document.getElementById('uploadContainer').style.display = 'none';
-        }
-      } catch (error) {
-        console.error('Error checking login status:', error);
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+          atob(base64).split('').map(c =>
+            '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+          ).join('')
+        );
+        return JSON.parse(jsonPayload);
+      } catch (e) {
+        return null;
       }
     }
 
-    // Add video entry
-    document.getElementById('addVideoBtn').addEventListener('click', function() {
+    function checkLoginStatus() {
+      const token = localStorage.getItem('jwt');
+      const payload = token ? parseJwt(token) : null;
+
+      if (payload && payload.userId && payload.email) {
+        console.log('Logged in as:', payload.email);
+        document.getElementById('loginLink').style.display = 'none';
+        document.getElementById('logoutLink').style.display = 'block';
+        document.getElementById('loginMessage').style.display = 'none';
+        document.getElementById('uploadContainer').style.display = 'block';
+      } else {
+        document.getElementById('loginLink').style.display = 'block';
+        document.getElementById('logoutLink').style.display = 'none';
+        document.getElementById('loginMessage').style.display = 'block';
+        document.getElementById('uploadContainer').style.display = 'none';
+      }
+    }
+
+    document.getElementById('logoutLink').addEventListener('click', function () {
+      localStorage.removeItem('jwt');
+      location.reload();
+    });
+
+    document.getElementById('addVideoBtn').addEventListener('click', function () {
       const videoFields = document.getElementById('videoFields');
       const newVideoEntry = document.createElement('div');
       newVideoEntry.className = 'video-entry';
@@ -169,84 +173,71 @@
         <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0 m-2 remove-video">×</button>
       `;
       videoFields.appendChild(newVideoEntry);
-      
-      // Add remove event listener
-      newVideoEntry.querySelector('.remove-video').addEventListener('click', function() {
-        videoFields.removeChild(newVideoEntry);
+      newVideoEntry.querySelector('.remove-video').addEventListener('click', function () {
+        newVideoEntry.remove();
       });
     });
-    
-    // Form submission
-    document.getElementById('courseUploadForm').addEventListener('submit', async function(e) {
+
+    document.getElementById('courseUploadForm').addEventListener('submit', async function (e) {
       e.preventDefault();
-      
       const submitBtn = this.querySelector('button[type="submit"]');
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Uploading...';
-      
+
       const formData = new FormData();
       formData.append('courseTitle', document.getElementById('courseTitle').value);
       formData.append('courseDescription', document.getElementById('courseDescription').value);
-      
+
       const videoEntries = document.querySelectorAll('.video-entry');
-      const videoTitles = [];
-      const videoDescriptions = [];
-      const durations = [];
-      
+      const titles = [], descriptions = [], durations = [];
       let hasFiles = false;
-      
+
       videoEntries.forEach(entry => {
         const title = entry.querySelector('.video-title').value;
-        const description = entry.querySelector('.video-description').value;
-        const duration = entry.querySelector('.video-duration').value;
+        const desc = entry.querySelector('.video-description').value;
+        const dur = entry.querySelector('.video-duration').value;
         const file = entry.querySelector('.video-file').files[0];
-        
+
         if (file) {
           hasFiles = true;
           formData.append('videos', file);
-          videoTitles.push(title);
-          videoDescriptions.push(description);
-          durations.push(parseInt(duration));
+          titles.push(title);
+          descriptions.push(desc);
+          durations.push(parseInt(dur));
         }
       });
-      
+
       if (!hasFiles) {
         alert('Please add at least one video file');
         submitBtn.disabled = false;
         submitBtn.innerHTML = 'Upload Course';
         return;
       }
-      
-      formData.append('videoTitles', JSON.stringify(videoTitles));
-      formData.append('videoDescriptions', JSON.stringify(videoDescriptions));
+
+      formData.append('videoTitles', JSON.stringify(titles));
+      formData.append('videoDescriptions', JSON.stringify(descriptions));
       formData.append('durations', JSON.stringify(durations));
-      
+
       try {
-        console.log('Submitting course data...');
+        const token = localStorage.getItem('jwt');
         const response = await fetch('/course/upload', {
           method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
           body: formData
         });
-        
+
         if (!response.ok) {
-          let errorMessage = `Server returned ${response.status}`;
-          try {
-            const errorData = await response.json();
-            errorMessage = errorData.message || errorMessage;
-          } catch (parseErr) {
-            const errorText = await response.text();
-            errorMessage = errorText || errorMessage;
-          }
-          throw new Error(errorMessage);
+          const errorText = await response.text();
+          throw new Error(errorText || `HTTP ${response.status}`);
         }
-        
-        const data = await response.json();
+
         alert('Course uploaded successfully!');
-        document.getElementById('courseUploadForm').reset();
+        this.reset();
         loadCourses();
-      } catch (error) {
-        console.error('Error:', error);
-        alert(`An error occurred during upload: ${error.message}`);
+      } catch (err) {
+        alert('Upload failed: ' + err.message);
       } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = 'Upload Course';
@@ -255,65 +246,34 @@
 
     async function loadCourses() {
       try {
-        document.getElementById('courseList').innerHTML = `
-          <div class="col-12 text-center">
-            <div class="spinner-border text-primary" role="status">
-              <span class="visually-hidden">Loading...</span>
-            </div>
-            <p>Loading courses...</p>
-          </div>
-        `;
-        
         const res = await fetch('/course');
-        
-        if (!res.ok) {
-          throw new Error(`HTTP error! Status: ${res.status}`);
-        }
-        
-        const contentType = res.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const text = await res.text();
-          console.error('Response is not JSON:', text.substring(0, 150) + '...');
-          throw new Error('Response is not JSON');
-        }
-        
         const courses = await res.json();
-        console.log('Courses loaded:', courses);
 
         const courseList = document.getElementById('courseList');
         courseList.innerHTML = '';
 
-        if (!courses || courses.length === 0) {
-          courseList.innerHTML = '<div class="col-12"><p class="text-center">No courses available yet. Create your first course!</p></div>';
+        if (!courses.length) {
+          courseList.innerHTML = '<p class="text-center">No courses available yet.</p>';
           return;
         }
 
         courses.forEach(course => {
-          const card = document.createElement('div');
-          card.className = 'col-lg-4 col-md-6 mb-4';
-          card.innerHTML = `
-            <div class="card shadow-sm h-100">
+          const div = document.createElement('div');
+          div.className = 'col-md-4';
+          div.innerHTML = `
+            <div class="card">
               <div class="card-body">
                 <h5 class="card-title">${course.title}</h5>
-                <p class="card-text">${course.description || 'No description'}</p>
-                <p class="text-muted">${course.videos ? course.videos.length : 0} videos | ${course.totalMinutes || 0} minutes total</p>
-              </div>
-              <div class="card-footer bg-white border-top-0">
+                <p>${course.description || ''}</p>
+                <p class="text-muted">${course.videos?.length || 0} videos | ${course.totalMinutes || 0} mins</p>
                 <button class="btn btn-primary w-100" onclick="viewCourse('${course._id}')">View Course</button>
               </div>
             </div>
           `;
-          courseList.appendChild(card);
+          courseList.appendChild(div);
         });
-
-      } catch (error) {
-        console.error('Error loading courses:', error);
-        document.getElementById('courseList').innerHTML = 
-          `<div class="col-12">
-            <div class="alert alert-danger">
-              Error loading courses: ${error.message}
-            </div>
-          </div>`;
+      } catch (err) {
+        console.error('Failed to load courses:', err);
       }
     }
 
@@ -321,7 +281,6 @@
       window.location.href = `/course/view/${id}`;
     }
 
-    // Initialize
     checkLoginStatus();
     loadCourses();
   </script>

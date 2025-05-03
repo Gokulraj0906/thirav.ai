@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - User Course Progress</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #f4f4f4; }
+    .controls { margin-bottom: 1rem; }
+    .grant-form { margin-top: 2rem; padding: 1rem; border: 1px solid #ccc; width: 100%; max-width: 500px; }
+    .grant-form input { width: 100%; padding: 8px; margin-bottom: 10px; }
+    .grant-form button { padding: 8px 12px; }
+  </style>
+</head>
+<body>
+  <h1>User Course Progress Dashboard</h1>
+
+  <div class="controls">
+    <label for="status-filter">Filter:</label>
+    <select id="status-filter">
+      <option value="all">All</option>
+      <option value="in progress">In Progress</option>
+      <option value="completed">Completed</option>
+    </select>
+    <button onclick="downloadCSV()">Export CSV</button>
+  </div>
+
+  <table id="progress-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>User</th>
+        <th>Email</th>
+        <th>Course</th>
+        <th>Watched (min)</th>
+        <th>Remaining (min)</th>
+        <th>Progress (%)</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="pagination">
+    <button onclick="prevPage()">Prev</button>
+    <span id="page-info"></span>
+    <button onclick="nextPage()">Next</button>
+  </div>
+
+  <div class="grant-form">
+    <h2>Grant Course Access</h2>
+    <input type="email" id="email-input" placeholder="User Email" required />
+    <input type="text" id="course-input" placeholder="Course Name" required />
+    <button onclick="grantAccess()">Grant Access</button>
+    <p id="grant-status" style="color: green;"></p>
+  </div>
+
+  <script>
+    let allData = [];
+    let currentPage = 1;
+    const rowsPerPage = 10;
+
+    async function fetchProgress() {
+      const res = await fetch('/admin/progress-review');
+      const data = await res.json();
+      allData = data;
+      renderTable();
+    }
+
+    function renderTable() {
+      const filter = document.getElementById('status-filter').value;
+      const tableBody = document.querySelector('#progress-table tbody');
+      tableBody.innerHTML = '';
+
+      const filtered = allData.filter(p => filter === 'all' || p.status === filter);
+      const totalPages = Math.ceil(filtered.length / rowsPerPage);
+      const start = (currentPage - 1) * rowsPerPage;
+      const end = start + rowsPerPage;
+
+      document.getElementById('page-info').innerText = `Page ${currentPage} of ${totalPages}`;
+
+      filtered.slice(start, end).forEach((p, i) => {
+        const remaining = p.totalMinutes - p.completedMinutes;
+        const row = `
+          <tr>
+            <td>${start + i + 1}</td>
+            <td>${p.userId?.username || 'N/A'}</td>
+            <td>${p.userId?.email || 'N/A'}</td>
+            <td>${p.courseId?.title || 'N/A'}</td>
+            <td>${p.completedMinutes}</td>
+            <td>${remaining}</td>
+            <td>${p.progress}%</td>
+            <td>${p.status}</td>
+          </tr>`;
+        tableBody.insertAdjacentHTML('beforeend', row);
+      });
+    }
+
+    function nextPage() {
+      const filter = document.getElementById('status-filter').value;
+      const filtered = allData.filter(p => filter === 'all' || p.status === filter);
+      const totalPages = Math.ceil(filtered.length / rowsPerPage);
+      if (currentPage < totalPages) {
+        currentPage++;
+        renderTable();
+      }
+    }
+
+    function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        renderTable();
+      }
+    }
+
+    function downloadCSV() {
+      let csv = 'User,Email,Course,Watched,Remaining,Progress,Status\n';
+      const filter = document.getElementById('status-filter').value;
+      const filtered = allData.filter(p => filter === 'all' || p.status === filter);
+
+      filtered.forEach(p => {
+        const remaining = p.totalMinutes - p.completedMinutes;
+        csv += `"${p.userId?.name}","${p.userId?.email}","${p.courseId?.title}",${p.completedMinutes},${remaining},${p.progress},${p.status}\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'user_progress.csv';
+      link.click();
+    }
+
+    async function grantAccess() {
+      const email = document.getElementById('email-input').value.trim();
+      const courseName = document.getElementById('course-input').value.trim();
+
+      if (!email || !courseName) {
+        alert('Both email and course name are required');
+        return;
+      }
+
+      const res = await fetch('/admin/grant-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, courseName })
+      });
+
+      const result = await res.json();
+      const statusEl = document.getElementById('grant-status');
+
+      if (result.message) {
+        statusEl.style.color = 'green';
+        statusEl.textContent = result.message;
+        fetchProgress(); // refresh data
+      } else {
+        statusEl.style.color = 'red';
+        statusEl.textContent = result.error || 'Failed to grant access';
+      }
+    }
+
+    document.getElementById('status-filter').addEventListener('change', () => {
+      currentPage = 1;
+      renderTable();
+    });
+
+    fetchProgress();
+  </script>
+</body>
+</html>

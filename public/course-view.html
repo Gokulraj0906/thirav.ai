@@ -1,60 +1,212 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Course View</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Course Viewer</title>
+  <style>
+    .progress-container {
+      background-color: #ddd;
+      height: 10px;
+      width: 100%;
+      border-radius: 5px;
+      margin: 5px 0;
+    }
+    .progress-bar {
+      background-color: #4caf50;
+      height: 100%;
+      width: 0%;
+      border-radius: 5px;
+      transition: width 0.3s ease;
+    }
+    .progress-text {
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+  </style>
 </head>
 <body>
-    <h1>Search for a Course</h1>
-    <input type="text" id="course-title" placeholder="Enter course title">
-    <button onclick="searchCourse()">Search</button>
+  <h1>Search for a Course</h1>
+  <input type="text" id="course-title" placeholder="Enter course title" />
+  <button onclick="searchCourse()">Search</button>
 
-    <div id="course-details"></div>
+  <div id="course-details"></div>
 
-    <script>
-        function searchCourse() {
-            const title = encodeURIComponent(document.getElementById('course-title').value.trim());
+  <script>
+    function getCookieValue(name) {
+      const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+      if (!match) return null;
 
-            fetch(`/course/details/by-title/${title}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        document.getElementById('course-details').innerHTML = `<p>${data.error}</p>`;
-                    } else {
-                        // Display course details
-                        let courseHTML = `
-                            <h2>${data.title}</h2>
-                            <p>${data.description}</p>
-                            <h3>Videos:</h3>
-                            <ul>
-                        `;
-                        
-                        data.videos.forEach(video => {
-                            courseHTML += `
-                                <li>
-                                    <h4>${video.title}</h4>
-                                    <p>${video.description}</p>
-                                    <video width="320" height="240" controls>
-                                        <source src="${video.url}" type="video/mp4">
-                                        Your browser does not support the video tag.
-                                    </video>
-                                    <p>Duration: ${video.duration} minutes</p>
-                                </li>
-                            `;
-                        });
-
-                        courseHTML += `</ul>`;
-                        courseHTML += `<p>Total Duration: ${data.totalMinutes} minutes</p>`;
-                        
-                        document.getElementById('course-details').innerHTML = courseHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching course:', error);
-                    document.getElementById('course-details').innerHTML = '<p>Error fetching course details</p>';
-                });
+      let value = decodeURIComponent(match[2]);
+      if (value.startsWith('j:')) {
+        try {
+          value = JSON.parse(value.slice(2));
+        } catch (e) {
+          console.warn('Failed to parse JSON cookie value:', value);
+          return null;
         }
-    </script>
+      }
+      return value;
+    }
+
+    const userId = getCookieValue('userId');
+    const userName = getCookieValue('userName');
+
+    function searchCourse() {
+      const title = encodeURIComponent(document.getElementById('course-title').value.trim());
+
+      fetch(`/course/details/by-title/${title}`)
+        .then(response => response.json())
+        .then(async data => {
+          if (data.error) {
+            document.getElementById('course-details').innerHTML = `<p>${data.error}</p>`;
+            return;
+          }
+
+          const enrollmentRes = await fetch(`/api/enrollment/check?userId=${userId}&courseId=${data._id}`);
+          const enrollmentData = await enrollmentRes.json();
+
+          let enrollButtonHTML = '';
+          if (!enrollmentData.enrolled) {
+            enrollButtonHTML = `<button onclick="enrollUser('${data._id}')">Enroll in Course</button>`;
+          }
+
+          let courseHTML = ` 
+            <h2>${data.title}</h2>
+            <p>${data.description}</p>
+            ${enrollButtonHTML}
+            <h3>Videos:</h3>
+            <ul>
+          `;
+
+          data.videos.forEach(video => {
+            courseHTML += ` 
+              <li>
+                <h4>${video.title}</h4>
+                <p>${video.description}</p>
+                <video id="video-${video.id}" width="320" height="240" controls
+                  controlsList="nodownload noplaybackrate" oncontextmenu="return false"
+                  disablePictureInPicture>
+                  <source src="${video.url}" type="video/mp4">
+                  Your browser does not support the video tag.
+                </video>
+                <p>Duration: ${video.duration} minutes</p>
+                <div class="progress-container">
+                  <div class="progress-bar" id="progress-bar-${video.id}"></div>
+                </div>
+                <div class="progress-text" id="progress-text-${video.id}">0%</div>
+              </li>
+            `;
+          });
+
+          courseHTML += ` 
+            </ul>
+            <p>Total Duration: ${data.totalMinutes} minutes</p>
+            <h3>Total Progress</h3>
+            <div class="progress-container">
+              <div class="progress-bar" id="total-progress-bar"></div>
+            </div>
+            <div class="progress-text" id="total-progress-text">0%</div>
+          `;
+
+          document.getElementById('course-details').innerHTML = courseHTML;
+
+          // Track individual video progress
+          const videoProgressMap = {};
+          const lastTime = {};
+          const lastSentPercent = {};
+
+          data.videos.forEach(video => {
+            const vid = document.getElementById(`video-${video.id}`);
+            const bar = document.getElementById(`progress-bar-${video.id}`);
+            const text = document.getElementById(`progress-text-${video.id}`);
+
+            if (vid) {
+              vid.addEventListener('loadedmetadata', () => {
+                lastTime[video.id] = 0;
+                lastSentPercent[video.id] = 0;
+
+                vid.addEventListener('timeupdate', () => {
+                  if (Math.abs(vid.currentTime - lastTime[video.id]) > 1) {
+                    vid.currentTime = lastTime[video.id];
+                  } else {
+                    lastTime[video.id] = vid.currentTime;
+                  }
+
+                  const percent = Math.floor((vid.currentTime / vid.duration) * 100);
+                  if (!isNaN(percent)) {
+                    const deltaPercent = Math.min(percent, 100) - lastSentPercent[video.id];
+                    if (deltaPercent > 0) {
+                      videoProgressMap[video.id] = Math.min(percent, 100);
+                      lastSentPercent[video.id] = Math.min(percent, 100);
+
+                      bar.style.width = `${percent}%`;
+                      text.innerText = `${percent}%`;
+
+                      // Send video-specific progress update to the server
+                      fetch('/api/progress/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          userId: userId,
+                          courseId: data._id,
+                          videoId: video.id,
+                          completedMinutes: Math.floor((percent / 100) * video.duration),
+                          progress: percent,
+                        }),
+                      });
+                    }
+                  }
+
+                  // Calculate total course progress
+                  const sum = Object.values(videoProgressMap).reduce((a, b) => a + b, 0);
+                  const totalPercent = Math.floor(sum / data.videos.length);
+                  document.getElementById('total-progress-bar').style.width = `${totalPercent}%`;
+                  document.getElementById('total-progress-text').innerText = `${totalPercent}%`;
+
+                  // Send total progress update to the server
+                  fetch('/api/progress/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      userId: userId,
+                      courseId: data._id,
+                      totalMinutes: data.totalMinutes,
+                      completedMinutes: Math.floor((totalPercent / 100) * data.totalMinutes),
+                      progress: totalPercent,
+                    }),
+                  });
+                });
+              });
+            }
+          });
+        })
+        .catch(error => {
+          console.error('Error fetching course:', error);
+          document.getElementById('course-details').innerHTML = '<p>Error fetching course details</p>';
+        });
+    }
+
+    function enrollUser(courseId) {
+      fetch('/api/enrollment/enroll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, courseId })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.message) {
+            alert(data.message);
+            searchCourse();
+          } else {
+            alert(data.error || 'Enrollment failed');
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error enrolling in course');
+        });
+    }
+  </script>
 </body>
 </html>
