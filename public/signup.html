@@ -5,36 +5,279 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Sign Up – thirav.ai</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #f4f4f4; display: flex; justify-content: center; align-items: center; height: 100vh; }
-    .container { background: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 300px; }
+    body { font-family: Arial, sans-serif; background: #f4f4f4; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+    .container { background: #fff; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 320px; }
     h2 { margin-bottom: 1rem; text-align: center; }
     label { display: block; margin: 0.5rem 0 0.2rem; }
-    input { width: 100%; padding: 0.5rem; margin-bottom: 0.8rem; border: 1px solid #ccc; border-radius: 4px; }
+    input { width: 100%; padding: 0.5rem; margin-bottom: 0.8rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
     button { width: 100%; padding: 0.6rem; border: none; background: #007bff; color: #fff; border-radius: 4px; cursor: pointer; }
     button:hover { background: #0056b3; }
     .links { text-align: center; margin-top: 1rem; }
     .links a { color: #007bff; text-decoration: none; }
     .links a:hover { text-decoration: underline; }
+    .step { display: none; }
+    .step.active { display: block; }
+    .otp-container { display: flex; justify-content: space-between; margin-bottom: 1rem; }
+    .otp-input { width: 40px; text-align: center; font-size: 1.2rem; }
+    .resend-link { font-size: 0.9rem; text-align: right; display: block; margin-bottom: 1rem; }
+    .error-message { color: #d9534f; font-size: 0.9rem; margin-bottom: 1rem; display: none; }
+    .success-message { color: #5cb85c; font-size: 0.9rem; margin-bottom: 1rem; display: none; }
+    .message { text-align: center; margin-bottom: 1rem; }
   </style>
 </head>
 <body>
   <div class="container">
     <h2>Sign Up</h2>
-    <form action="/auth/signup" method="POST">
-      <label for="username">Username</label>
-      <input type="text" id="username" name="username" required />
-
+    
+    <!-- Step 1: Email Verification Request -->
+    <div class="step active" id="step1">
+      <p class="message">Enter your email to receive a verification code</p>
+      <div class="error-message" id="step1Error"></div>
+      <div class="success-message" id="step1Success"></div>
+      
       <label for="email">Email</label>
       <input type="email" id="email" name="email" required />
-
+      
+      <button type="button" id="requestOtpBtn">Send Verification Code</button>
+      
+      <div class="links">
+        <p>Already have an account? <a href="./login.html">Log in</a></p>
+      </div>
+    </div>
+    
+    <!-- Step 2: OTP Verification and Registration -->
+    <div class="step" id="step2">
+      <p class="message">Enter the 6-digit code sent to your email</p>
+      <div class="error-message" id="step2Error"></div>
+      
+      <div class="otp-container">
+        <input type="text" class="otp-input" maxlength="1" data-index="1" />
+        <input type="text" class="otp-input" maxlength="1" data-index="2" />
+        <input type="text" class="otp-input" maxlength="1" data-index="3" />
+        <input type="text" class="otp-input" maxlength="1" data-index="4" />
+        <input type="text" class="otp-input" maxlength="1" data-index="5" />
+        <input type="text" class="otp-input" maxlength="1" data-index="6" />
+      </div>
+      
+      <a href="#" class="resend-link" id="resendOtp">Didn't receive the code? Resend</a>
+      
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" required />
+      
       <label for="password">Password</label>
       <input type="password" id="password" name="password" required />
-
-      <button type="submit">Create Account</button>
-    </form>
-    <div class="links">
-      <p>Already have an account? <a href="./login.html">Log in</a></p>
+      
+      <button type="button" id="verifyOtpBtn">Create Account</button>
+      
+      <div class="links">
+        <p><a href="#" id="backToStep1">← Back</a></p>
+      </div>
     </div>
   </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const step1 = document.getElementById('step1');
+      const step2 = document.getElementById('step2');
+      const requestOtpBtn = document.getElementById('requestOtpBtn');
+      const verifyOtpBtn = document.getElementById('verifyOtpBtn');
+      const resendOtp = document.getElementById('resendOtp');
+      const backToStep1 = document.getElementById('backToStep1');
+      const step1Error = document.getElementById('step1Error');
+      const step1Success = document.getElementById('step1Success');
+      const step2Error = document.getElementById('step2Error');
+      const emailInput = document.getElementById('email');
+      const otpInputs = document.querySelectorAll('.otp-input');
+      
+      // OTP input handling
+      otpInputs.forEach(input => {
+        input.addEventListener('input', function() {
+          if (this.value.length === this.maxLength) {
+            const nextIndex = parseInt(this.getAttribute('data-index')) + 1;
+            const nextInput = document.querySelector(`.otp-input[data-index="${nextIndex}"]`);
+            if (nextInput) nextInput.focus();
+          }
+        });
+        
+        input.addEventListener('keydown', function(e) {
+          if (e.key === 'Backspace' && this.value.length === 0) {
+            const prevIndex = parseInt(this.getAttribute('data-index')) - 1;
+            const prevInput = document.querySelector(`.otp-input[data-index="${prevIndex}"]`);
+            if (prevInput) prevInput.focus();
+          }
+        });
+      });
+      
+      // Request OTP button
+      requestOtpBtn.addEventListener('click', async function() {
+        const email = emailInput.value.trim();
+        
+        if (!email || !validateEmail(email)) {
+          showError(step1Error, 'Please enter a valid email address');
+          return;
+        }
+        
+        try {
+          requestOtpBtn.disabled = true;
+          requestOtpBtn.textContent = 'Sending...';
+          
+          const response = await fetch('/auth/request-otp', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email })
+          });
+          
+          const data = await response.json();
+          
+          if (response.ok) {
+            // Show success message
+            showSuccess(step1Success, 'Verification code sent! Check your email.');
+            
+            // Move to step 2 after a short delay
+            setTimeout(() => {
+              step1.classList.remove('active');
+              step2.classList.add('active');
+            }, 1500);
+          } else {
+            showError(step1Error, data.message || 'Failed to send verification code');
+          }
+        } catch (err) {
+          showError(step1Error, 'An error occurred. Please try again.');
+        } finally {
+          requestOtpBtn.disabled = false;
+          requestOtpBtn.textContent = 'Send Verification Code';
+        }
+      });
+      
+      // Verify OTP button
+      verifyOtpBtn.addEventListener('click', async function() {
+        const email = emailInput.value.trim();
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value.trim();
+        
+        // Collect OTP
+        let otp = '';
+        otpInputs.forEach(input => {
+          otp += input.value;
+        });
+        
+        // Validate
+        if (!username) {
+          showError(step2Error, 'Username is required');
+          return;
+        }
+        
+        if (!password || password.length < 6) {
+          showError(step2Error, 'Password must be at least 6 characters');
+          return;
+        }
+        
+        if (otp.length !== 6) {
+          showError(step2Error, 'Please enter the complete 6-digit code');
+          return;
+        }
+        
+        try {
+          verifyOtpBtn.disabled = true;
+          verifyOtpBtn.textContent = 'Creating Account...';
+          
+          const response = await fetch('/auth/verify-otp', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ username, email, password, otp })
+          });
+          
+          const data = await response.json();
+          
+          if (response.ok) {
+            // Account created successfully, redirect to dashboard
+            window.location.href = '/dashboard';
+          } else {
+            showError(step2Error, data.message || 'Failed to verify code');
+          }
+        } catch (err) {
+          showError(step2Error, 'An error occurred. Please try again.');
+        } finally {
+          verifyOtpBtn.disabled = false;
+          verifyOtpBtn.textContent = 'Create Account';
+        }
+      });
+      
+      // Resend OTP
+      resendOtp.addEventListener('click', async function(e) {
+        e.preventDefault();
+        
+        try {
+          resendOtp.textContent = 'Sending...';
+          
+          const response = await fetch('/auth/resend-otp', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email: emailInput.value.trim() })
+          });
+          
+          const data = await response.json();
+          
+          if (response.ok) {
+            showMessage(step2Error, 'New code sent to your email', true);
+          } else {
+            showMessage(step2Error, data.message || 'Failed to resend code');
+          }
+        } catch (err) {
+          showMessage(step2Error, 'An error occurred. Please try again.');
+        } finally {
+          resendOtp.textContent = 'Didn\'t receive the code? Resend';
+        }
+      });
+      
+      // Back button
+      backToStep1.addEventListener('click', function(e) {
+        e.preventDefault();
+        step2.classList.remove('active');
+        step1.classList.add('active');
+      });
+      
+      // Helper functions
+      function validateEmail(email) {
+        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return re.test(email);
+      }
+      
+      function showError(element, message) {
+        element.textContent = message;
+        element.style.display = 'block';
+        
+        setTimeout(() => {
+          element.style.display = 'none';
+        }, 5000);
+      }
+      
+      function showSuccess(element, message) {
+        element.textContent = message;
+        element.style.display = 'block';
+        
+        setTimeout(() => {
+          element.style.display = 'none';
+        }, 5000);
+      }
+      
+      function showMessage(element, message, isSuccess = false) {
+        element.textContent = message;
+        element.style.color = isSuccess ? '#5cb85c' : '#d9534f';
+        element.style.display = 'block';
+        
+        setTimeout(() => {
+          element.style.display = 'none';
+          element.style.color = '#d9534f'; // Reset to error color
+        }, 5000);
+      }
+    });
+  </script>
 </body>
 </html>
