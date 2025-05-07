@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - User Course Progress</title>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      margin: 0;
+      padding: 0;
+      background-color: #f8f9fa;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    h1, h2 {
+      color: #2c3e50;
+      margin-bottom: 1rem;
+    }
+    .card {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #eee;
+    }
+    .admin-badge {
+      background-color: #4a90e2;
+      color: white;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    table { 
+      width: 100%; 
+      border-collapse: collapse; 
+    }
+    th, td { 
+      border: 1px solid #ddd; 
+      padding: 12px; 
+      text-align: left; 
+    }
+    th { 
+      background-color: #f0f2f5; 
+      font-weight: bold;
+    }
+    tr:nth-child(even) {
+      background-color: #f9f9f9;
+    }
+    tr:hover {
+      background-color: #f0f0f0;
+    }
+    .controls { 
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem; 
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .filter-group label {
+      font-weight: bold;
+    }
+    select, input, button {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    select:focus, input:focus {
+      border-color: #4a90e2;
+      outline: none;
+    }
+    button {
+      background-color: #4a90e2;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #3a7bc8;
+    }
+    .btn-secondary {
+      background-color: #6c757d;
+    }
+    .btn-secondary:hover {
+      background-color: #5a6268;
+    }
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-top: 1rem;
+    }
+    .pagination button {
+      margin: 0 5px;
+    }
+    #page-info {
+      margin: 0 15px;
+      font-size: 14px;
+    }
+    .progress-bar {
+      height: 8px;
+      background-color: #e9ecef;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 4px;
+    }
+    .progress-fill {
+      height: 100%;
+      background-color: #4a90e2;
+    }
+    .status-badge {
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .status-completed {
+      background-color: #28a745;
+      color: white;
+    }
+    .status-in-progress {
+      background-color: #ffc107;
+      color: #212529;
+    }
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #6c757d;
+    }
+    .grant-form {
+      margin-top: 2rem;
+    }
+    .form-group {
+      margin-bottom: 1rem;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: bold;
+    }
+    .grant-form input {
+      width: 100%;
+    }
+    #grant-status {
+      margin-top: 1rem;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #6c757d;
+    }
+    .empty-state i {
+      font-size: 48px;
+      margin-bottom: 1rem;
+      color: #dee2e6;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>User Course Progress Dashboard</h1>
+      <span class="admin-badge">Admin Access</span>
+    </div>
+
+    <div class="card">
+      <div class="controls">
+        <div class="filter-group">
+          <label for="status-filter">Filter by Status:</label>
+          <select id="status-filter">
+            <option value="all">All</option>
+            <option value="in progress">In Progress</option>
+            <option value="completed">Completed</option>
+          </select>
+        </div>
+        <button onclick="downloadCSV()">Export to CSV</button>
+      </div>
+
+      <div id="loading-indicator" class="loading">Loading course data...</div>
+      
+      <table id="progress-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>User</th>
+            <th>Email</th>
+            <th>Course</th>
+            <th>Watched (min)</th>
+            <th>Remaining (min)</th>
+            <th>Progress</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Table data will be loaded dynamically -->
+        </tbody>
+      </table>
+
+      <div class="pagination">
+        <button onclick="prevPage()" class="btn-secondary">Previous</button>
+        <span id="page-info">Page 1 of 1</span>
+        <button onclick="nextPage()" class="btn-secondary">Next</button>
+      </div>
+    </div>
+
+    <div class="card grant-form">
+      <h2>Grant Course Access</h2>
+      <div class="form-group">
+        <label for="email-input">User Email:</label>
+        <input type="email" id="email-input" placeholder="Enter user email address" required />
+      </div>
+      <div class="form-group">
+        <label for="course-input">Course Name:</label>
+        <input type="text" id="course-input" placeholder="Enter exact course title" required />
+      </div>
+      <button onclick="grantAccess()">Grant Access</button>
+      <div id="grant-status" style="display: none;"></div>
+    </div>
+  </div>
+
+  <script>
+    let allData = [];
+    let currentPage = 1;
+    const rowsPerPage = 10;
+    
+    // Fetch user progress data
+    async function fetchProgress() {
+      try {
+        document.getElementById('loading-indicator').style.display = 'block';
+        const res = await fetch('/admin/progress-review');
+        
+        if (!res.ok) {
+          if (res.status === 401) {
+            alert('Please log in to access this page');
+            window.location.href = '/auth/login?redirect=/admin-progress';
+            return;
+          } else if (res.status === 403) {
+            alert('You do not have admin access permissions');
+            window.location.href = '/';
+            return;
+          }
+          throw new Error(`HTTP error! Status: ${res.status}`);
+        }
+        
+        const data = await res.json();
+        allData = data;
+        renderTable();
+      } catch (error) {
+        console.error('Error fetching progress data:', error);
+        document.getElementById('loading-indicator').textContent = 
+          'Error loading data. Please try refreshing the page.';
+      } finally {
+        document.getElementById('loading-indicator').style.display = 'none';
+      }
+    }
+
+    function renderTable() {
+      const filter = document.getElementById('status-filter').value;
+      const tableBody = document.querySelector('#progress-table tbody');
+      tableBody.innerHTML = '';
+
+      const filtered = allData.filter(p => filter === 'all' || p.status === filter);
+      const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
+      
+      // Ensure current page is valid
+      if (currentPage > totalPages) {
+        currentPage = totalPages;
+      }
+      
+      const start = (currentPage - 1) * rowsPerPage;
+      const end = start + rowsPerPage;
+
+      document.getElementById('page-info').innerText = `Page ${currentPage} of ${totalPages}`;
+
+      if (filtered.length === 0) {
+        tableBody.innerHTML = `
+          <tr>
+            <td colspan="8" class="empty-state">
+              <p>No course progress data found for the selected filter</p>
+            </td>
+          </tr>`;
+        return;
+      }
+
+      filtered.slice(start, end).forEach((p, i) => {
+        const remaining = p.totalMinutes - p.completedMinutes;
+        const progressPercent = p.progress || 0;
+        const statusClass = p.status === 'completed' ? 'status-completed' : 'status-in-progress';
+        
+        const row = `
+          <tr>
+            <td>${start + i + 1}</td>
+            <td>${p.userId?.username || 'N/A'}</td>
+            <td>${p.userId?.email || 'N/A'}</td>
+            <td>${p.courseId?.title || 'N/A'}</td>
+            <td>${p.completedMinutes || 0}</td>
+            <td>${remaining || 0}</td>
+            <td>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: ${progressPercent}%"></div>
+              </div>
+              <div style="text-align: right; font-size: 12px; margin-top: 4px;">${progressPercent}%</div>
+            </td>
+            <td><span class="status-badge ${statusClass}">${p.status || 'N/A'}</span></td>
+          </tr>`;
+        tableBody.insertAdjacentHTML('beforeend', row);
+      });
+    }
+
+    function nextPage() {
+      const filter = document.getElementById('status-filter').value;
+      const filtered = allData.filter(p => filter === 'all' || p.status === filter);
+      const totalPages = Math.ceil(filtered.length / rowsPerPage);
+      if (currentPage < totalPages) {
+        currentPage++;
+        renderTable();
+      }
+    }
+
+    function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        renderTable();
+      }
+    }
+
+    function downloadCSV() {
+      const filter = document.getElementById('status-filter').value;
+      const filtered = allData.filter(p => filter === 'all' || p.status === filter);
+      
+      if (filtered.length === 0) {
+        alert('No data to export');
+        return;
+      }
+      
+      let csv = 'User,Email,Course,Watched (min),Remaining (min),Progress (%),Status\n';
+
+      filtered.forEach(p => {
+        const remaining = p.totalMinutes - p.completedMinutes;
+        const username = p.userId?.username ? `"${p.userId.username}"` : '"N/A"';
+        const email = p.userId?.email ? `"${p.userId.email}"` : '"N/A"';
+        const course = p.courseId?.title ? `"${p.courseId.title}"` : '"N/A"';
+        
+        csv += `${username},${email},${course},${p.completedMinutes || 0},${remaining || 0},${p.progress || 0},"${p.status || 'N/A'}"\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `user_progress_${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+    }
+
+    async function grantAccess() {
+      const statusEl = document.getElementById('grant-status');
+      statusEl.style.display = 'none';
+      statusEl.className = '';
+      
+      const email = document.getElementById('email-input').value.trim();
+      const courseName = document.getElementById('course-input').value.trim();
+
+      if (!email || !courseName) {
+        statusEl.textContent = 'Both email and course name are required';
+        statusEl.className = 'error';
+        statusEl.style.display = 'block';
+        return;
+      }
+
+      try {
+        const res = await fetch('/admin/grant-access', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, courseName })
+        });
+
+        const result = await res.json();
+        
+        if (res.ok) {
+          statusEl.className = 'success';
+          statusEl.textContent = result.message;
+          // Clear form
+          document.getElementById('email-input').value = '';
+          document.getElementById('course-input').value = '';
+          // Refresh data
+          fetchProgress();
+        } else {
+          statusEl.className = 'error';
+          statusEl.textContent = result.error || 'Failed to grant access';
+        }
+      } catch (error) {
+        console.error('Error granting access:', error);
+        statusEl.className = 'error';
+        statusEl.textContent = 'Server error. Please try again.';
+      }
+      
+      statusEl.style.display = 'block';
+    }
+
+    document.getElementById('status-filter').addEventListener('change', () => {
+      currentPage = 1;
+      renderTable();
+    });
+
+    // Initialize and fetch data
+    fetchProgress();
+  </script>
+</body>
+</html>

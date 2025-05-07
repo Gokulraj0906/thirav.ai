@@ -6,9 +6,11 @@ const mongoose = require('mongoose');
 const path = require('path');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
-const adminRoutes = require('./routes/adminProgress');
-
-
+// const adminRoutes = require('./routes/adminProgress');
+const UserProgress = require('./models/UserProgress');
+const User = require('./models/User');
+const Course = require('./models/Course');
+const Enrollment = require('./models/Enrollment');
 
 
 require('./auth/passport');         // Passport config
@@ -70,8 +72,96 @@ app.use('/video', videoRoutes);
 app.use('/course', courseRoutes);
 app.use('/api/enrollment', enrollmentRoutes);
 app.use('/api/progress', progressRoutes);
-app.use('/admin', adminRoutes);
-// Home
+app.use('/admin', express.static(path.join(__dirname, 'public/admin')));
+
+// Serve the admin progress page
+app.get('/admin-progress', (req, res, next) => {
+  if (!req.isAuthenticated()) {
+    return res.redirect('/auth/login?redirect=/admin-progress');
+  }
+  next();
+}, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/admin/admin-progress.html'));
+});
+
+// Admin API endpoint for progress data
+app.get('/admin/progress-review', (req, res, next) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  next();
+}, async (req, res) => {
+  try {
+    const data = await UserProgress.find()
+      .populate('userId', 'email username')
+      .populate('courseId', 'title videos totalMinutes');
+    
+    res.json(data);
+  } catch (err) {
+    console.error('Error fetching progress data:', err);
+    res.status(500).json({ error: 'Failed to fetch user progress' });
+  }
+});
+
+// Admin API endpoint for granting access
+app.post('/admin/grant-access', (req, res, next) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  next();
+}, async (req, res) => {
+  const { email, courseName } = req.body;
+  
+  try {
+    const user = await User.findOne({ email });
+    const course = await Course.findOne({ title: courseName });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+    
+    // Check if already enrolled
+    const existingProgress = await UserProgress.findOne({
+      userId: user._id,
+      courseId: course._id
+    });
+    
+    if (existingProgress) {
+      return res.json({ message: 'User already has access to this course' });
+    }
+    
+    // Create new UserProgress entry
+    const progress = new UserProgress({
+      userId: user._id,
+      courseId: course._id,
+      completedMinutes: 0,
+      progress: 0,
+      totalMinutes: course.totalMinutes || 0,
+      status: 'in progress'
+    });
+    await progress.save();
+    
+    // Create new Enrollment entry
+    const enrollment = new Enrollment({
+      userId: user._id,
+      courseId: course._id,
+      enrolledAt: new Date()
+    });
+    await enrollment.save();
+    
+    return res.json({
+      message: 'Access granted successfully.'
+    });
+  } catch (err) {
+    console.error('Error granting access:', err);
+    res.status(500).json({ error: 'Error granting access' });
+  }
+});
+
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/home.html'));
 });

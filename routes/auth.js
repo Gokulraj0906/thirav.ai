@@ -34,16 +34,49 @@ const setAuthCookies = (res, user) => {
   const userId = user._id;
   
   res.cookie('userId', userId, { 
-    maxAge: 24 * 60 * 60 * 1000, 
+    maxAge: 24 * 60 * 60 * 1000,
     httpOnly: true,
-    sameSite: 'lax'
+    sameSite: 'lax',
+    secure: !DEV_MODE // Use secure in production
   });
   
   res.cookie('username', name, { 
-    maxAge: 24 * 60 * 60 * 1000, 
+    maxAge: 24 * 60 * 60 * 1000,
     httpOnly: true,
-    sameSite: 'lax'
+    sameSite: 'lax',
+    secure: !DEV_MODE // Use secure in production
   });
+  
+  // Add a non-httpOnly cookie for frontend access
+  res.cookie('isLoggedIn', 'true', { 
+    maxAge: 24 * 60 * 60 * 1000,
+    httpOnly: false,
+    sameSite: 'lax',
+    secure: !DEV_MODE // Use secure in production
+  });
+};
+
+// Authentication middleware
+const isAuthenticated = (req, res, next) => {
+  // Check if authenticated via session
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  
+  // Check if authenticated via token
+  try {
+    const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
+    if (token) {
+      const decoded = jwt.verify(token, SECRET);
+      req.user = { id: decoded.id, username: decoded.username, email: decoded.email };
+      return next();
+    }
+  } catch (err) {
+    console.error('Auth middleware error:', err);
+  }
+  
+  // If not authenticated by either method
+  return res.status(401).json({ message: 'Unauthorized' });
 };
 
 // Initialize email transporter if credentials are available
@@ -146,11 +179,102 @@ router.post('/request-otp', async (req, res) => {
       const mailOptions = {
         from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
         to: email,
-        subject: 'Your OTP for Registration',
+        subject: 'Your OTP for Registration - thirav.ai',
         html: `
-          <h1>Email Verification</h1>
-          <p>Your verification code is: <strong>${otp}</strong></p>
-          <p>This code will expire in 10 minutes.</p>
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Email Verification</title>
+            <style>
+              body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 600px;
+                margin: 0 auto;
+                padding: 20px;
+              }
+              .email-container {
+                border-radius: 8px;
+                overflow: hidden;
+                border: 1px solid #e0e0e0;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+              }
+              .email-header {
+                background-color: #007bff;
+                color: white;
+                padding: 20px;
+                text-align: center;
+              }
+              .email-header h1 {
+                margin: 0;
+                font-size: 24px;
+              }
+              .email-body {
+                background-color: #ffffff;
+                padding: 30px;
+              }
+              .verification-code {
+                font-size: 32px;
+                font-weight: bold;
+                letter-spacing: 4px;
+                text-align: center;
+                margin: 20px 0;
+                color: #007bff;
+                padding: 10px;
+                background-color: #f8f9fa;
+                border-radius: 4px;
+              }
+              .email-footer {
+                background-color: #f8f9fa;
+                padding: 15px;
+                text-align: center;
+                font-size: 12px;
+                color: #666;
+              }
+              p {
+                margin-bottom: 15px;
+              }
+              .expiry-notice {
+                color: #dc3545;
+                font-size: 14px;
+                margin-top: 15px;
+              }
+              .logo {
+                font-size: 26px;
+                font-weight: bold;
+                margin-bottom: 10px;
+              }
+              .logo span {
+                color:rgb(0, 0, 0);
+              }
+            </style>
+          </head>
+          <body>
+            <div class="email-container">
+              <div class="email-header">
+                <div class="logo">thirav<span>.ai</span></div>
+                <h1>Email Verification</h1>
+              </div>
+              <div class="email-body">
+                <p>Hello,</p>
+                <p>Thank you for registering with thirav.ai! To complete your registration, please use the verification code below:</p>
+                
+                <div class="verification-code">${otp}</div>
+                
+                <p>Enter this code on the verification page to activate your account.</p>
+                <p class="expiry-notice">This code will expire in 10 minutes for security reasons.</p>
+                <p>If you did not request this code, please disregard this email.</p>
+              </div>
+              <div class="email-footer">
+                <p>&copy; ${new Date().getFullYear()} thirav.ai. All rights reserved.</p>
+                <p>This is an automated message, please do not reply to this email.</p>
+              </div>
+            </div>
+          </body>
+          </html>
         `
       };
 
@@ -216,20 +340,28 @@ router.post('/verify-otp', async (req, res) => {
 
     const token = generateToken(newUser);
     
-    // Set cookies for userId and username
+    // Set cookies for authentication
     setAuthCookies(res, newUser);
+    
+    // Also set the JWT token as a cookie
+    res.cookie('token', token, { 
+      maxAge: 24 * 60 * 60 * 1000,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: !DEV_MODE
+    });
 
     // Log in the user after signup
     req.login(newUser, err => {
       if (err) {
         console.error('Login after signup error:', err);
       }
-    });
-
-    res.status(201).json({
-      message: 'Signup successful',
-      token,
-      user: { id: newUser._id, username: newUser.username, email: newUser.email }
+      
+      res.status(201).json({
+        message: 'Signup successful',
+        token,
+        user: { id: newUser._id, username: newUser.username, email: newUser.email }
+      });
     });
   } catch (err) {
     console.error('OTP Verification Error:', err);
@@ -274,11 +406,102 @@ router.post('/resend-otp', async (req, res) => {
       const mailOptions = {
         from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
         to: email,
-        subject: 'Your New OTP for Registration',
+        subject: 'Your New OTP for Registration - thirav.ai',
         html: `
-          <h1>Email Verification</h1>
-          <p>Your new verification code is: <strong>${otp}</strong></p>
-          <p>This code will expire in 10 minutes.</p>
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Email Verification</title>
+            <style>
+              body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 600px;
+                margin: 0 auto;
+                padding: 20px;
+              }
+              .email-container {
+                border-radius: 8px;
+                overflow: hidden;
+                border: 1px solid #e0e0e0;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+              }
+              .email-header {
+                background-color: #007bff;
+                color: white;
+                padding: 20px;
+                text-align: center;
+              }
+              .email-header h1 {
+                margin: 0;
+                font-size: 24px;
+              }
+              .email-body {
+                background-color: #ffffff;
+                padding: 30px;
+              }
+              .verification-code {
+                font-size: 32px;
+                font-weight: bold;
+                letter-spacing: 4px;
+                text-align: center;
+                margin: 20px 0;
+                color: #007bff;
+                padding: 10px;
+                background-color: #f8f9fa;
+                border-radius: 4px;
+              }
+              .email-footer {
+                background-color: #f8f9fa;
+                padding: 15px;
+                text-align: center;
+                font-size: 12px;
+                color: #666;
+              }
+              p {
+                margin-bottom: 15px;
+              }
+              .expiry-notice {
+                color: #dc3545;
+                font-size: 14px;
+                margin-top: 15px;
+              }
+              .logo {
+                font-size: 26px;
+                font-weight: bold;
+                margin-bottom: 10px;
+              }
+              .logo span {
+                color:rgb(0, 0, 0);
+              }
+            </style>
+          </head>
+          <body>
+            <div class="email-container">
+              <div class="email-header">
+                <div class="logo">thirav<span>.ai</span></div>
+                <h1>New Verification Code</h1>
+              </div>
+              <div class="email-body">
+                <p>Hello,</p>
+                <p>You've requested a new verification code for your thirav.ai account. Please use the code below to complete your registration:</p>
+                
+                <div class="verification-code">${otp}</div>
+                
+                <p>Enter this code on the verification page to activate your account.</p>
+                <p class="expiry-notice">This code will expire in 10 minutes for security reasons.</p>
+                <p>If you did not request this code, please disregard this email.</p>
+              </div>
+              <div class="email-footer">
+                <p>&copy; ${new Date().getFullYear()} thirav.ai. All rights reserved.</p>
+                <p>This is an automated message, please do not reply to this email.</p>
+              </div>
+            </div>
+          </body>
+          </html>
         `
       };
 
@@ -292,7 +515,7 @@ router.post('/resend-otp', async (req, res) => {
     } catch (emailError) {
       console.error('Email sending error:', emailError);
       
-      // If email sending fails but we're in dev mode, still return success with OTP
+
       if (DEV_MODE) {
         return res.status(200).json({ 
           message: 'Generated new OTP but email sending failed. Check OTP in server logs.',
@@ -326,6 +549,14 @@ router.post('/login', async (req, res, next) => {
       // Set cookies for userId and username
       setAuthCookies(res, user);
       
+      // Also set the JWT token as a cookie
+      res.cookie('token', token, { 
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: !DEV_MODE
+      });
+      
       res.json({
         message: 'Login successful',
         token,
@@ -335,26 +566,21 @@ router.post('/login', async (req, res, next) => {
   })(req, res, next);
 });
 
+// =================== PROTECTED ROUTE TEST ===================
+router.get('/protected-test', isAuthenticated, (req, res) => {
+  res.json({ 
+    message: 'You are authenticated!',
+    user: req.user
+  });
+});
+
 // =================== UPDATE USERNAME ===================
-router.patch('/update-username', async (req, res) => {
-  // Use either session or JWT for authentication
+router.patch('/update-username', isAuthenticated, async (req, res) => {
   try {
     let userId;
     
-    // First check if user is logged in via session
-    if (req.isAuthenticated() && req.user) {
-      userId = req.user._id;
-    } 
-    // If not, check JWT token
-    else {
-      const token = req.headers.authorization?.split(' ')[1];
-      if (!token) {
-        return res.status(401).json({ message: 'No authentication token provided' });
-      }
-      
-      const decoded = jwt.verify(token, SECRET);
-      userId = decoded.id;
-    }
+    // Get user ID from req.user (set by isAuthenticated middleware)
+    userId = req.user.id || req.user._id;
     
     const user = await User.findById(userId);
     if (!user) return res.status(401).json({ message: 'User not found' });
@@ -371,7 +597,8 @@ router.patch('/update-username', async (req, res) => {
     res.cookie('username', newUsername, { 
       maxAge: 24 * 60 * 60 * 1000, 
       httpOnly: true,
-      sameSite: 'lax'
+      sameSite: 'lax',
+      secure: !DEV_MODE
     });
 
     res.status(200).json({ 
@@ -383,7 +610,7 @@ router.patch('/update-username', async (req, res) => {
       } 
     });
   } catch (err) {
-    return res.status(401).json({ message: 'Unauthorized', error: err.message });
+    return res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
 
@@ -395,6 +622,15 @@ router.get('/google/callback',
     // Set cookies after successful OAuth login
     if (req.user) {
       setAuthCookies(res, req.user);
+      
+      // Also set the JWT token
+      const token = generateToken(req.user);
+      res.cookie('token', token, { 
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: !DEV_MODE
+      });
     }
     res.redirect('/dashboard');
   }
@@ -407,6 +643,15 @@ router.get('/github/callback',
     // Set cookies after successful OAuth login
     if (req.user) {
       setAuthCookies(res, req.user);
+      
+      // Also set the JWT token
+      const token = generateToken(req.user);
+      res.cookie('token', token, { 
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: !DEV_MODE
+      });
     }
     res.redirect('/dashboard');
   }
@@ -419,6 +664,15 @@ router.get('/linkedin/callback',
     // Set cookies after successful OAuth login
     if (req.user) {
       setAuthCookies(res, req.user);
+      
+      // Also set the JWT token
+      const token = generateToken(req.user);
+      res.cookie('token', token, { 
+        maxAge: 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: !DEV_MODE
+      });
     }
     res.redirect('/dashboard');
   }
@@ -426,32 +680,19 @@ router.get('/linkedin/callback',
 
 // =================== LOGOUT ===================
 router.get('/logout', (req, res) => {
-  // Clear cookies
+  // Clear all auth cookies
   res.clearCookie('userId');
   res.clearCookie('username');
+  res.clearCookie('isLoggedIn');
+  res.clearCookie('token');
   
   req.logout(() => res.redirect('/'));
 });
 
 // =================== DELETE ACCOUNT ===================
-router.delete('/delete-account', async (req, res) => {
+router.delete('/delete-account', isAuthenticated, async (req, res) => {
   try {
-    let userId;
-    
-    // First check if user is logged in via session
-    if (req.isAuthenticated() && req.user) {
-      userId = req.user._id;
-    } 
-    // If not, check JWT token
-    else {
-      const token = req.headers.authorization?.split(' ')[1];
-      if (!token) {
-        return res.status(401).json({ message: 'No authentication token provided' });
-      }
-      
-      const decoded = jwt.verify(token, SECRET);
-      userId = decoded.id;
-    }
+    let userId = req.user.id || req.user._id;
     
     const user = await User.findById(userId);
     if (!user) return res.status(401).json({ message: 'User not found' });
@@ -461,6 +702,8 @@ router.delete('/delete-account', async (req, res) => {
     // Clear cookies
     res.clearCookie('userId');
     res.clearCookie('username');
+    res.clearCookie('isLoggedIn');
+    res.clearCookie('token');
     
     // Log out if using session auth
     if (req.isAuthenticated()) {
@@ -469,7 +712,7 @@ router.delete('/delete-account', async (req, res) => {
     
     res.status(200).json({ message: 'Account deleted successfully' });
   } catch (err) {
-    return res.status(401).json({ message: 'Unauthorized', error: err.message });
+    return res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
 
@@ -482,19 +725,31 @@ router.get('/isLoggedIn', (req, res) => {
       username: req.user.username || req.user.displayName
     });
   } else {
+    // Try to verify via token
+    try {
+      const token = req.cookies.token;
+      if (token) {
+        const decoded = jwt.verify(token, SECRET);
+        return res.json({ 
+          isLoggedIn: true,
+          userId: decoded.id,
+          username: decoded.username
+        });
+      }
+    } catch (err) {
+      console.error('Token verification error:', err);
+    }
+    
     res.json({ isLoggedIn: false });
   }
 });
 
-router.get('/user-info', (req, res) => {
-  if (req.isAuthenticated()) {
-    res.json({
-      userId: req.user._id,
-      username: req.user.username || req.user.displayName,
-    });
-  } else {
-    res.status(401).json({ message: 'Unauthorized' });
-  }
+router.get('/user-info', isAuthenticated, (req, res) => {
+  res.json({
+    userId: req.user.id || req.user._id,
+    username: req.user.username || req.user.displayName,
+    email: req.user.email
+  });
 });
 
 module.exports = router;
