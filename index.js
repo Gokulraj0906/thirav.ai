@@ -201,7 +201,7 @@ app.get('/isLoggedIn', (req, res) => {
   }
 });
 
-// Logout (if using session-based)
+
 app.get('/logout', (req, res, next) => {
   req.logout(err => {
     if (err) return next(err);
@@ -211,7 +211,6 @@ app.get('/logout', (req, res, next) => {
   });
 });
 
-// Mongo and server
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
     console.log('MongoDB connected');
