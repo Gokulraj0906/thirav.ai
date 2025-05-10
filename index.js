@@ -6,11 +6,12 @@ const mongoose = require('mongoose');
 const path = require('path');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
-// const adminRoutes = require('./routes/adminProgress');
 const UserProgress = require('./models/UserProgress');
 const User = require('./models/User');
 const Course = require('./models/Course');
 const Enrollment = require('./models/Enrollment');
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yamljs');
 
 
 require('./auth/passport');         // Passport config
@@ -19,8 +20,9 @@ const authenticateJWT = require('./auth/jwtMiddleware');  // JWT middleware
 const authRoutes = require('./routes/auth');
 const videoRoutes = require('./routes/video');
 const courseRoutes = require('./routes/course');
-const enrollmentRoutes = require('./routes/enrollment'); // your enrollment router
+const enrollmentRoutes = require('./routes/enrollment');
 const progressRoutes = require('./routes/userProgress');     // your progress router
+const swaggerDocument = YAML.load('./docs/swagger.yaml'); // Path to your YAML file
 
 const app = express();
 
@@ -28,6 +30,8 @@ app.use(cors({
   origin: 'http://localhost:3001',
   credentials: true,
 }));
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 app.use(express.json({ limit: '50mb' }));
@@ -210,8 +214,9 @@ app.get('/logout', (req, res, next) => {
 // Mongo and server
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {
-    console.log('✅ MongoDB connected');
+    console.log('MongoDB connected');
     const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => console.log(`🚀 Server running at http://localhost:${PORT}`));
+    app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
+    console.log(`Swagger docs available at http://localhost:${PORT}/api-docs`);
   })
   .catch(err => console.error('❌ MongoDB connection error:', err));

@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Course Viewer</title>
   <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
     .progress-container {
       background-color: #ddd;
       height: 10px;
@@ -23,16 +29,103 @@
       font-size: 12px;
       margin-bottom: 10px;
     }
+    button {
+      background-color: #4caf50;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 10px 0;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    input {
+      padding: 8px;
+      width: 300px;
+      margin-right: 10px;
+    }
+    video {
+      margin: 10px 0;
+    }
+    .course-content {
+      display: none;
+    }
+    .enrollment-section {
+      margin: 20px 0;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      background-color: #f9f9f9;
+    }
+    .status-message {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+    }
+    .status-error {
+      background-color: #ffeeee;
+      color: #d32f2f;
+      border: 1px solid #ffcdd2;
+    }
+    .status-success {
+      background-color: #e8f5e9;
+      color: #388e3c;
+      border: 1px solid #c8e6c9;
+    }
+    .status-info {
+      background-color: #e3f2fd;
+      color: #1976d2;
+      border: 1px solid #bbdefb;
+    }
+    .video-title {
+      margin-top: 20px;
+      padding-top: 10px;
+      border-top: 1px solid #eee;
+    }
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(0,0,0,.1);
+      border-radius: 50%;
+      border-top-color: #4caf50;
+      animation: spin 1s ease-in-out infinite;
+      margin-left: 10px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
   <h1>Search for a Course</h1>
   <input type="text" id="course-title" placeholder="Enter course title" />
-  <button onclick="searchCourse()">Search</button>
+  <button id="search-button" onclick="searchCourse()">Search</button>
 
-  <div id="course-details"></div>
+  <div id="status-message"></div>
+  <div id="course-info"></div>
+  <div id="enrollment-section" class="enrollment-section" style="display: none">
+    <h2 id="enrollment-course-title"></h2>
+    <p id="enrollment-course-description"></p>
+    <button id="enroll-button" onclick="enrollUser()">Enroll in Course</button>
+  </div>
+  <div id="course-details" class="course-content"></div>
 
   <script>
+    // Global variables
+    let currentCourseId = null;
+    let currentCourse = null;
+    const videoProgressMap = {};
+    const DEBOUNCE_DELAY = 2000; // 2 seconds
+    let updateProgressTimers = {};
+    
+    // Get user ID from cookie
     function getCookieValue(name) {
       const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
       if (!match) return null;
@@ -42,170 +135,463 @@
         try {
           value = JSON.parse(value.slice(2));
         } catch (e) {
-          console.warn('Failed to parse JSON cookie value:', value);
+          console.error('Failed to parse JSON cookie value:', value);
           return null;
         }
       }
       return value;
     }
 
+    // Get user ID from cookie or session storage
     const userId = getCookieValue('userId');
     const userName = getCookieValue('userName');
-
-    function searchCourse() {
-      const title = encodeURIComponent(document.getElementById('course-title').value.trim());
-
-      fetch(`/course/details/by-title/${title}`)
-        .then(response => response.json())
-        .then(async data => {
-          if (data.error) {
-            document.getElementById('course-details').innerHTML = `<p>${data.error}</p>`;
-            return;
-          }
-
-          const enrollmentRes = await fetch(`/api/enrollment/check?userId=${userId}&courseId=${data._id}`);
-          const enrollmentData = await enrollmentRes.json();
-
-          let enrollButtonHTML = '';
-          if (!enrollmentData.enrolled) {
-            enrollButtonHTML = `<button onclick="enrollUser('${data._id}')">Enroll in Course</button>`;
-          }
-
-          let courseHTML = ` 
-            <h2>${data.title}</h2>
-            <p>${data.description}</p>
-            ${enrollButtonHTML}
-            <h3>Videos:</h3>
-            <ul>
-          `;
-
-          data.videos.forEach(video => {
-            courseHTML += ` 
-              <li>
-                <h4>${video.title}</h4>
-                <p>${video.description}</p>
-                <video id="video-${video.id}" width="320" height="240" controls
-                  controlsList="nodownload noplaybackrate" oncontextmenu="return false"
-                  disablePictureInPicture>
-                  <source src="${video.url}" type="video/mp4">
-                  Your browser does not support the video tag.
-                </video>
-                <p>Duration: ${video.duration} minutes</p>
-                <div class="progress-container">
-                  <div class="progress-bar" id="progress-bar-${video.id}"></div>
-                </div>
-                <div class="progress-text" id="progress-text-${video.id}">0%</div>
-              </li>
-            `;
-          });
-
-          courseHTML += ` 
-            </ul>
-            <p>Total Duration: ${data.totalMinutes} minutes</p>
-            <h3>Total Progress</h3>
-            <div class="progress-container">
-              <div class="progress-bar" id="total-progress-bar"></div>
-            </div>
-            <div class="progress-text" id="total-progress-text">0%</div>
-          `;
-
-          document.getElementById('course-details').innerHTML = courseHTML;
-
-          // Track individual video progress
-          const videoProgressMap = {};
-          const lastTime = {};
-          const lastSentPercent = {};
-
-          data.videos.forEach(video => {
-            const vid = document.getElementById(`video-${video.id}`);
-            const bar = document.getElementById(`progress-bar-${video.id}`);
-            const text = document.getElementById(`progress-text-${video.id}`);
-
-            if (vid) {
-              vid.addEventListener('loadedmetadata', () => {
-                lastTime[video.id] = 0;
-                lastSentPercent[video.id] = 0;
-
-                vid.addEventListener('timeupdate', () => {
-                  if (Math.abs(vid.currentTime - lastTime[video.id]) > 1) {
-                    vid.currentTime = lastTime[video.id];
-                  } else {
-                    lastTime[video.id] = vid.currentTime;
-                  }
-
-                  const percent = Math.floor((vid.currentTime / vid.duration) * 100);
-                  if (!isNaN(percent)) {
-                    const deltaPercent = Math.min(percent, 100) - lastSentPercent[video.id];
-                    if (deltaPercent > 0) {
-                      videoProgressMap[video.id] = Math.min(percent, 100);
-                      lastSentPercent[video.id] = Math.min(percent, 100);
-
-                      bar.style.width = `${percent}%`;
-                      text.innerText = `${percent}%`;
-
-                      // Send video-specific progress update to the server
-                      fetch('/api/progress/update', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          userId: userId,
-                          courseId: data._id,
-                          videoId: video.id,
-                          completedMinutes: Math.floor((percent / 100) * video.duration),
-                          progress: percent,
-                        }),
-                      });
-                    }
-                  }
-
-                  // Calculate total course progress
-                  const sum = Object.values(videoProgressMap).reduce((a, b) => a + b, 0);
-                  const totalPercent = Math.floor(sum / data.videos.length);
-                  document.getElementById('total-progress-bar').style.width = `${totalPercent}%`;
-                  document.getElementById('total-progress-text').innerText = `${totalPercent}%`;
-
-                  // Send total progress update to the server
-                  fetch('/api/progress/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      userId: userId,
-                      courseId: data._id,
-                      totalMinutes: data.totalMinutes,
-                      completedMinutes: Math.floor((totalPercent / 100) * data.totalMinutes),
-                      progress: totalPercent,
-                    }),
-                  });
-                });
-              });
-            }
-          });
-        })
-        .catch(error => {
-          console.error('Error fetching course:', error);
-          document.getElementById('course-details').innerHTML = '<p>Error fetching course details</p>';
-        });
+    
+    // Check if user is authenticated
+    if (!userId) {
+      showStatusMessage('Please log in to view courses', 'error');
     }
 
-    function enrollUser(courseId) {
-      fetch('/api/enrollment/enroll', {
+    // Initialize page
+    window.addEventListener('DOMContentLoaded', () => {
+      // Add enter key support for search
+      document.getElementById('course-title').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          searchCourse();
+        }
+      });
+    });
+
+    function showStatusMessage(message, type = 'info') {
+      const statusEl = document.getElementById('status-message');
+      statusEl.className = `status-message status-${type}`;
+      statusEl.textContent = message;
+      statusEl.style.display = 'block';
+      
+      // Auto-hide success and info messages after 5 seconds
+      if (type !== 'error') {
+        setTimeout(() => {
+          statusEl.style.display = 'none';
+        }, 5000);
+      }
+    }
+
+    function clearStatusMessage() {
+      document.getElementById('status-message').style.display = 'none';
+    }
+
+    async function searchCourse() {
+      if (!userId) {
+        showStatusMessage('Please log in to view courses', 'error');
+        return;
+      }
+
+      const titleInput = document.getElementById('course-title');
+      const title = titleInput.value.trim();
+      if (!title) {
+        showStatusMessage('Please enter a course title', 'error');
+        return;
+      }
+
+      // Reset UI
+      document.getElementById('course-info').innerHTML = '';
+      document.getElementById('enrollment-section').style.display = 'none';
+      document.getElementById('course-details').style.display = 'none';
+      clearStatusMessage();
+
+      // Show loading state
+      const searchButton = document.getElementById('search-button');
+      const originalButtonText = searchButton.textContent;
+      searchButton.disabled = true;
+      searchButton.innerHTML = 'Searching... <span class="loading"></span>';
+
+      try {
+        const encodedTitle = encodeURIComponent(title);
+        const response = await fetch(`/course/details/by-title/${encodedTitle}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+          showStatusMessage(data.error, 'error');
+          return;
+        }
+
+        // Store course data
+        currentCourseId = data._id;
+        currentCourse = data;
+
+        // Check enrollment status
+        const enrollmentRes = await fetch(`/api/enrollment/check?userId=${userId}&courseId=${data._id}`);
+        
+        if (!enrollmentRes.ok) {
+          throw new Error(`HTTP error! Status: ${enrollmentRes.status}`);
+        }
+        
+        const enrollmentData = await enrollmentRes.json();
+
+        if (enrollmentData.enrolled) {
+          // User is enrolled, show course content
+          document.getElementById('course-info').innerHTML = '<p>You are enrolled in this course.</p>';
+          document.getElementById('enrollment-section').style.display = 'none';
+          displayCourseContent(data);
+        } else {
+          // User is not enrolled, show enrollment option
+          document.getElementById('course-info').innerHTML = '<p>You are not enrolled in this course.</p>';
+          document.getElementById('enrollment-section').style.display = 'block';
+          document.getElementById('enrollment-course-title').textContent = data.title;
+          document.getElementById('enrollment-course-description').textContent = data.description;
+          document.getElementById('course-details').style.display = 'none';
+        }
+      } catch (error) {
+        console.error('Error fetching course:', error);
+        showStatusMessage('Error fetching course details. Please try again.', 'error');
+      } finally {
+        // Reset button state
+        searchButton.disabled = false;
+        searchButton.textContent = originalButtonText;
+      }
+    }
+
+    function displayCourseContent(data) {
+      // Validate data
+      if (!data || !data.videos || !Array.isArray(data.videos)) {
+        showStatusMessage('Invalid course data received', 'error');
+        return;
+      }
+
+      let courseHTML = ` 
+        <h2>${escapeHtml(data.title)}</h2>
+        <p>${escapeHtml(data.description)}</p>
+        <h3>Videos:</h3>
+        <ul>
+      `;
+
+      data.videos.forEach(video => {
+        courseHTML += ` 
+          <li>
+            <h4 class="video-title">${escapeHtml(video.title)}</h4>
+            <p>${escapeHtml(video.description)}</p>
+            <video id="video-${video.id}" width="320" height="240" controls
+              controlsList="nodownload noplaybackrate" oncontextmenu="return false"
+              disablePictureInPicture>
+              <source src="${video.url}" type="video/mp4">
+              Your browser does not support the video tag.
+            </video>
+            <p>Duration: ${video.duration} minutes</p>
+            <div class="progress-container">
+              <div class="progress-bar" id="progress-bar-${video.id}"></div>
+            </div>
+            <div class="progress-text" id="progress-text-${video.id}">0%</div>
+          </li>
+        `;
+      });
+
+      courseHTML += ` 
+        </ul>
+        <p>Total Duration: ${data.totalMinutes} minutes</p>
+        <h3>Total Progress</h3>
+        <div class="progress-container">
+          <div class="progress-bar" id="total-progress-bar"></div>
+        </div>
+        <div class="progress-text" id="total-progress-text">0%</div>
+      `;
+
+      document.getElementById('course-details').innerHTML = courseHTML;
+      document.getElementById('course-details').style.display = 'block';
+
+      // Initialize video progress tracking
+      initializeVideoTracking(data);
+      
+      // Load existing progress data
+      loadExistingProgress(data._id);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function initializeVideoTracking(data) {
+      // Clear previous progress
+      Object.keys(videoProgressMap).forEach(key => delete videoProgressMap[key]);
+      
+      data.videos.forEach(video => {
+        const videoElement = document.getElementById(`video-${video.id}`);
+        const progressBar = document.getElementById(`progress-bar-${video.id}`);
+        const progressText = document.getElementById(`progress-text-${video.id}`);
+        
+        if (!videoElement) return;
+        
+        // Initialize tracking for this video
+        videoProgressMap[video.id] = {
+          duration: video.duration,
+          lastTime: 0,
+          lastSentPercent: 0,
+          watchedSections: new Set(),
+          progress: 0
+        };
+        
+        videoElement.addEventListener('loadedmetadata', () => {
+          videoElement.addEventListener('timeupdate', () => {
+            updateVideoProgress(video.id, videoElement, progressBar, progressText, data._id);
+          });
+          
+          // Save position when user pauses
+          videoElement.addEventListener('pause', () => {
+            const videoId = video.id;
+            if (updateProgressTimers[videoId]) {
+              clearTimeout(updateProgressTimers[videoId]);
+              updateProgressTimers[videoId] = null;
+              sendProgressUpdate(videoId, data._id);
+            }
+          });
+        });
+      });
+    }
+
+    function debounceProgressUpdate(videoId, courseId) {
+      // Clear any existing timer for this video
+      if (updateProgressTimers[videoId]) {
+        clearTimeout(updateProgressTimers[videoId]);
+      }
+      
+      // Set a new timer
+      updateProgressTimers[videoId] = setTimeout(() => {
+        sendProgressUpdate(videoId, courseId);
+        updateProgressTimers[videoId] = null;
+      }, DEBOUNCE_DELAY);
+    }
+    
+    function sendProgressUpdate(videoId, courseId) {
+      const trackInfo = videoProgressMap[videoId];
+      if (!trackInfo) return;
+      
+      // Add security token or use proper CSRF protection in production
+      fetch('/api/progress/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, courseId })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.message) {
-            alert(data.message);
-            searchCourse();
-          } else {
-            alert(data.error || 'Enrollment failed');
-          }
+        body: JSON.stringify({
+          userId: userId,
+          courseId: courseId,
+          videoId: videoId,
+          completedMinutes: Math.floor((trackInfo.progress / 100) * trackInfo.duration),
+          progress: trackInfo.progress
         })
-        .catch(err => {
-          console.error(err);
-          alert('Error enrolling in course');
+      }).catch(err => {
+        console.error('Failed to update video progress:', err);
+      });
+    }
+    
+    function updateVideoProgress(videoId, videoElement, progressBar, progressText, courseId) {
+      const trackInfo = videoProgressMap[videoId];
+      
+      // Skip if track info is missing
+      if (!trackInfo) return;
+      
+      // Security check for time jumping
+      const currentTime = videoElement.currentTime;
+      const timeDiff = Math.abs(currentTime - trackInfo.lastTime);
+      
+      // If time jumped too far without loading event, it might be manipulation
+      if (timeDiff > 5 && !videoElement.seeking) {
+        console.log('Potential seek detected, validating...');
+        // Allow seeking backward but limit forward skipping
+        if (currentTime > trackInfo.lastTime) {
+          // Only allow reasonable skipping (5 seconds)
+          videoElement.currentTime = trackInfo.lastTime + 5;
+        }
+      }
+      
+      trackInfo.lastTime = videoElement.currentTime;
+      
+      // Track progress in 10-second intervals
+      const currentSection = Math.floor(currentTime / 10);
+      trackInfo.watchedSections.add(currentSection);
+      
+      // Calculate progress based on unique sections watched
+      const videoDuration = videoElement.duration || (trackInfo.duration * 60); // Convert minutes to seconds
+      const totalSections = Math.ceil(videoDuration / 10);
+      const watchedSections = trackInfo.watchedSections.size;
+      const percent = Math.floor((watchedSections / totalSections) * 100);
+      
+      // Only update if we have valid values
+      if (!isNaN(percent) && percent >= 0) {
+        const currentPercent = Math.min(percent, 100);
+        
+        // Only update if progress increased
+        if (currentPercent > trackInfo.progress) {
+          trackInfo.progress = currentPercent;
+          
+          // Update UI
+          progressBar.style.width = `${currentPercent}%`;
+          progressText.innerText = `${currentPercent}%`;
+          
+          // Debounce API calls
+          debounceProgressUpdate(videoId, courseId);
+          
+          // Update total course progress
+          updateTotalProgress(courseId);
+        }
+      }
+    }
+    
+    function updateTotalProgress(courseId) {
+      if (!currentCourse || !currentCourse.videos) return;
+      
+      const videos = currentCourse.videos;
+      let totalDuration = 0;
+      let totalCompleted = 0;
+      
+      videos.forEach(video => {
+        const info = videoProgressMap[video.id];
+        if (info) {
+          totalDuration += info.duration;
+          totalCompleted += (info.progress / 100) * info.duration;
+        } else {
+          totalDuration += video.duration;
+        }
+      });
+      
+      if (totalDuration === 0) return;
+      
+      const totalPercent = Math.floor((totalCompleted / totalDuration) * 100);
+      
+      // Update UI
+      const totalProgressBar = document.getElementById('total-progress-bar');
+      const totalProgressText = document.getElementById('total-progress-text');
+      
+      if (totalProgressBar && totalProgressText) {
+        totalProgressBar.style.width = `${totalPercent}%`;
+        totalProgressText.innerText = `${totalPercent}%`;
+      }
+      
+      // Send total progress to server (debounced)
+      if (!updateProgressTimers['total']) {
+        updateProgressTimers['total'] = setTimeout(() => {
+          fetch('/api/progress/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: userId,
+              courseId: courseId,
+              totalProgress: true,
+              completedMinutes: Math.floor(totalCompleted),
+              totalMinutes: totalDuration,
+              progress: totalPercent
+            })
+          }).catch(err => {
+            console.error('Failed to update total progress:', err);
+          });
+          updateProgressTimers['total'] = null;
+        }, DEBOUNCE_DELAY);
+      }
+    }
+    
+    async function loadExistingProgress(courseId) {
+      try {
+        const res = await fetch(`/api/progress/get?userId=${userId}&courseId=${courseId}`);
+        if (!res.ok) {
+          throw new Error(`HTTP error! Status: ${res.status}`);
+        }
+        
+        const data = await res.json();
+        if (data.error) return;
+        
+        // Set total progress
+        const totalProgress = data.progress || 0;
+        const totalProgressBar = document.getElementById('total-progress-bar');
+        const totalProgressText = document.getElementById('total-progress-text');
+        
+        if (totalProgressBar && totalProgressText) {
+          totalProgressBar.style.width = `${totalProgress}%`;
+          totalProgressText.innerText = `${totalProgress}%`;
+        }
+        
+        // Set individual video progress if available
+        if (data.videoProgress && Array.isArray(data.videoProgress)) {
+          data.videoProgress.forEach(vp => {
+            const videoId = vp.videoId;
+            const progress = vp.progress || 0;
+            const watchedMinutes = vp.completedMinutes || 0;
+            
+            const progressBar = document.getElementById(`progress-bar-${videoId}`);
+            const progressText = document.getElementById(`progress-text-${videoId}`);
+            const videoElement = document.getElementById(`video-${videoId}`);
+            
+            if (progressBar && progressText) {
+              progressBar.style.width = `${progress}%`;
+              progressText.innerText = `${progress}%`;
+            }
+            
+            if (videoElement && videoProgressMap[videoId]) {
+              videoProgressMap[videoId].progress = progress;
+              videoProgressMap[videoId].lastSentPercent = progress;
+              
+              // Set time position if video is loaded
+              if (videoElement.readyState >= 2) {
+                const trackInfo = videoProgressMap[videoId];
+                const videoDuration = videoElement.duration;
+                if (videoDuration && watchedMinutes) {
+                  // Calculate startTime in seconds
+                  const startTimePercent = Math.min(progress / 100, 0.95); // Never start at the very end
+                  videoElement.currentTime = startTimePercent * videoDuration;
+                }
+              }
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load progress:', err);
+        showStatusMessage('Failed to load your progress. Please refresh the page.', 'error');
+      }
+    }
+
+    async function enrollUser() {
+      if (!currentCourseId || !userId) {
+        showStatusMessage('Missing course or user information', 'error');
+        return;
+      }
+      
+      const enrollButton = document.getElementById('enroll-button');
+      const originalText = enrollButton.textContent;
+      enrollButton.disabled = true;
+      enrollButton.innerHTML = 'Enrolling... <span class="loading"></span>';
+      
+      try {
+        const res = await fetch('/api/enrollment/enroll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, courseId: currentCourseId })
         });
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! Status: ${res.status}`);
+        }
+        
+        const data = await res.json();
+        
+        if (data.message) {
+          showStatusMessage(data.message, 'success');
+          // Re-search to show the course content
+          searchCourse();
+        } else {
+          showStatusMessage(data.error || 'Enrollment failed', 'error');
+        }
+      } catch (err) {
+        console.error('Error enrolling in course:', err);
+        showStatusMessage('Error enrolling in course. Please try again.', 'error');
+      } finally {
+        enrollButton.disabled = false;
+        enrollButton.textContent = originalText;
+      }
     }
   </script>
 </body>

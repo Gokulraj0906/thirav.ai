@@ -1,0 +1,851 @@
+openapi: 3.0.0
+info:
+  title: LMS API
+  description: API documentation for learning management system with courses, videos, authentication, and progress tracking
+  version: 1.0.0
+servers:
+  - url: /api
+    description: Development server
+tags:
+  - name: Authentication
+    description: User authentication endpoints
+  - name: Admin
+    description: Admin-only endpoints
+  - name: Courses
+    description: Course management
+  - name: Videos
+    description: Video management
+  - name: Enrollment
+    description: User enrollment for courses
+  - name: User Progress
+    description: Track user progress in courses
+
+paths:
+  # Authentication Routes
+  /auth/request-otp:
+    post:
+      tags:
+        - Authentication
+      summary: Request OTP for email verification
+      description: Sends an OTP to the provided email for verification during signup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+      responses:
+        '200':
+          description: OTP sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: OTP sent to your email. Please verify to complete registration.
+        '400':
+          description: Email already registered
+        '500':
+          description: Failed to send verification email
+  
+  /auth/verify-otp:
+    post:
+      tags:
+        - Authentication
+      summary: Verify OTP and complete signup
+      description: Verifies the OTP and creates a new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - email
+                - password
+                - otp
+              properties:
+                username:
+                  type: string
+                  example: johndoe
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  example: securepassword123
+                otp:
+                  type: string
+                  example: "123456"
+      responses:
+        '201':
+          description: Signup successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Signup successful
+                  token:
+                    type: string
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      username:
+                        type: string
+                      email:
+                        type: string
+        '400':
+          description: Invalid or expired OTP
+        '500':
+          description: Server error
+  
+  /auth/resend-otp:
+    post:
+      tags:
+        - Authentication
+      summary: Resend OTP
+      description: Generates a new OTP and sends it to the email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+      responses:
+        '200':
+          description: New OTP sent successfully
+        '400':
+          description: Email already registered
+        '500':
+          description: Failed to resend OTP
+  
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user with email/username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  description: Email or username
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  example: securepassword123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Login successful
+                  token:
+                    type: string
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      username:
+                        type: string
+                      email:
+                        type: string
+        '400':
+          description: Login failed
+  
+  /auth/update-username:
+    patch:
+      tags:
+        - Authentication
+      summary: Update username
+      description: Update the current user's username
+      security:
+        - BearerAuth: []
+        - SessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - newUsername
+              properties:
+                newUsername:
+                  type: string
+                  example: newusername
+      responses:
+        '200':
+          description: Username updated successfully
+        '400':
+          description: New username is required
+        '401':
+          description: Unauthorized
+  
+  /auth/google:
+    get:
+      tags:
+        - Authentication
+      summary: Google OAuth login
+      description: Redirects to Google for OAuth authentication
+      responses:
+        '302':
+          description: Redirect to Google OAuth
+
+  /auth/google/callback:
+    get:
+      tags:
+        - Authentication
+      summary: Google OAuth callback
+      description: Callback endpoint for Google OAuth
+      responses:
+        '302':
+          description: Redirect to dashboard on success or home on failure
+  
+  /auth/github:
+    get:
+      tags:
+        - Authentication
+      summary: GitHub OAuth login
+      description: Redirects to GitHub for OAuth authentication
+      responses:
+        '302':
+          description: Redirect to GitHub OAuth
+
+  /auth/github/callback:
+    get:
+      tags:
+        - Authentication
+      summary: GitHub OAuth callback
+      description: Callback endpoint for GitHub OAuth
+      responses:
+        '302':
+          description: Redirect to dashboard on success or home on failure
+
+  /auth/linkedin:
+    get:
+      tags:
+        - Authentication
+      summary: LinkedIn OAuth login
+      description: Redirects to LinkedIn for OAuth authentication
+      responses:
+        '302':
+          description: Redirect to LinkedIn OAuth
+
+  /auth/linkedin/callback:
+    get:
+      tags:
+        - Authentication
+      summary: LinkedIn OAuth callback
+      description: Callback endpoint for LinkedIn OAuth
+      responses:
+        '302':
+          description: Redirect to dashboard on success or home on failure
+  
+  /auth/logout:
+    get:
+      tags:
+        - Authentication
+      summary: User logout
+      description: Logs out the current user and clears session
+      responses:
+        '302':
+          description: Redirects to homepage
+  
+  /auth/delete-account:
+    delete:
+      tags:
+        - Authentication
+      summary: Delete user account
+      description: Permanently deletes the current user's account
+      security:
+        - BearerAuth: []
+        - SessionAuth: []
+      responses:
+        '200':
+          description: Account deleted successfully
+        '401':
+          description: Unauthorized
+  
+  /auth/isLoggedIn:
+    get:
+      tags:
+        - Authentication
+      summary: Check login status
+      description: Checks if the user is currently logged in
+      responses:
+        '200':
+          description: Login status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isLoggedIn:
+                    type: boolean
+                  userId:
+                    type: string
+                  username:
+                    type: string
+  
+  /auth/user-info:
+    get:
+      tags:
+        - Authentication
+      summary: Get current user info
+      description: Returns information about the currently logged-in user
+      security:
+        - SessionAuth: []
+      responses:
+        '200':
+          description: User information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId:
+                    type: string
+                  username:
+                    type: string
+        '401':
+          description: Unauthorized
+  
+  /auth/test-email:
+    get:
+      tags:
+        - Authentication
+      summary: Test email configuration
+      description: Checks if the email service is properly configured
+      responses:
+        '200':
+          description: Email configuration is working
+        '500':
+          description: Email configuration error
+  
+  # Admin Routes
+  /admin/progress-review:
+    get:
+      tags:
+        - Admin
+      summary: Get all user progress
+      description: Admin endpoint to review progress of all users across all courses
+      security:
+        - BearerAuth: []
+        - SessionAuth: []
+      responses:
+        '200':
+          description: List of all user progress
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserProgress'
+        '500':
+          description: Failed to fetch user progress
+
+  /admin/grant-access:
+    post:
+      tags:
+        - Admin
+      summary: Grant course access
+      description: Admin endpoint to grant a user access to a specific course
+      security:
+        - BearerAuth: []
+        - SessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - courseName
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                courseName:
+                  type: string
+                  example: "Introduction to JavaScript"
+      responses:
+        '200':
+          description: Access granted successfully
+        '404':
+          description: User or course not found
+        '500':
+          description: Error granting access
+  
+  # Course Routes
+  /course:
+    get:
+      tags:
+        - Courses
+      summary: Get all courses
+      description: Retrieves a list of all available courses
+      responses:
+        '200':
+          description: List of courses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Course'
+        '500':
+          description: Server error
+  
+  /course/details/by-title/{title}:
+    get:
+      tags:
+        - Courses
+      summary: Get course by title
+      description: Retrieves a specific course by its title
+      parameters:
+        - name: title
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Course title (URL encoded)
+          example: Introduction%20to%20JavaScript
+      responses:
+        '200':
+          description: Course details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '404':
+          description: Course not found
+        '500':
+          description: Server error
+
+  /course/upload:
+    post:
+      tags:
+        - Courses
+      summary: Upload new course with videos
+      description: Creates a new course with video content
+      security:
+        - BearerAuth: []
+        - SessionAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - courseTitle
+                - courseDescription
+                - videos
+              properties:
+                courseTitle:
+                  type: string
+                  example: "JavaScript Fundamentals"
+                courseDescription:
+                  type: string
+                  example: "Learn the basics of JavaScript programming"
+                videoTitles:
+                  type: string
+                  format: json
+                  example: '["Introduction", "Variables", "Functions"]'
+                videoDescriptions:
+                  type: string
+                  format: json
+                  example: '["Course overview", "Working with variables", "Creating functions"]'
+                durations:
+                  type: string
+                  format: json
+                  example: '[10, 15, 20]'
+                videos:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '201':
+          description: Course uploaded successfully
+        '400':
+          description: No video files uploaded
+        '500':
+          description: Server error
+  
+  # Video Routes
+  /video:
+    get:
+      tags:
+        - Videos
+      summary: Get all videos
+      description: Retrieves a list of all videos
+      responses:
+        '200':
+          description: List of videos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Video'
+        '500':
+          description: Server error
+
+  /video/upload:
+    post:
+      tags:
+        - Videos
+      summary: Upload a new video
+      description: Uploads a single video with title and description
+      security:
+        - BearerAuth: []
+        - SessionAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - title
+                - description
+                - video
+              properties:
+                title:
+                  type: string
+                  example: "JavaScript Variables"
+                description:
+                  type: string
+                  example: "Learn about variables in JavaScript"
+                video:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Video uploaded successfully
+        '500':
+          description: Server error
+  
+  /video/update/{id}:
+    patch:
+      tags:
+        - Videos
+      summary: Update video details
+      description: Updates title, description, or URL of an existing video
+      security:
+        - BearerAuth: []
+        - SessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Video ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                url:
+                  type: string
+      responses:
+        '200':
+          description: Video updated successfully
+        '404':
+          description: Video not found
+        '500':
+          description: Server error
+  
+  # Enrollment Routes
+  /enrollment/check:
+    get:
+      tags:
+        - Enrollment
+      summary: Check user enrollment
+      description: Checks if a user is enrolled in a specific course
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: User ID
+        - name: courseId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Course ID
+      responses:
+        '200':
+          description: Enrollment status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enrolled:
+                    type: boolean
+        '400':
+          description: Invalid userId or courseId
+        '500':
+          description: Failed to check enrollment
+
+  /enrollment/enroll:
+    post:
+      tags:
+        - Enrollment
+      summary: Enroll user in course
+      description: Enrolls a user in a specific course
+      security:
+        - BearerAuth: []
+        - SessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userId
+                - courseId
+              properties:
+                userId:
+                  type: string
+                  example: "60d21b4667d0d8992e610c85"
+                courseId:
+                  type: string
+                  example: "60d21b4667d0d8992e610c86"
+      responses:
+        '200':
+          description: Enrollment successful
+        '400':
+          description: Invalid userId or courseId
+        '404':
+          description: Course not found
+        '409':
+          description: User already enrolled in this course
+        '500':
+          description: Enrollment failed
+  
+  # User Progress Routes
+  /user-progress/update-progress:
+    post:
+      tags:
+        - User Progress
+      summary: Update user progress
+      description: Updates a user's progress in a course
+      security:
+        - BearerAuth: []
+        - SessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userId
+                - courseId
+                - watchedMinutes
+              properties:
+                userId:
+                  type: string
+                  example: "60d21b4667d0d8992e610c85"
+                courseId:
+                  type: string
+                  example: "60d21b4667d0d8992e610c86"
+                watchedMinutes:
+                  type: number
+                  example: 15
+      responses:
+        '200':
+          description: Progress updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Progress updated"
+                  progress:
+                    $ref: '#/components/schemas/UserProgress'
+        '400':
+          description: Watched minutes cannot exceed total course duration
+        '404':
+          description: Progress record not found
+        '500':
+          description: Failed to update progress
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    SessionAuth:
+      type: apiKey
+      in: cookie
+      name: connect.sid
+  
+  schemas:
+    User:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: "60d21b4667d0d8992e610c85"
+        username:
+          type: string
+          example: "johndoe"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        password:
+          type: string
+          example: "$2a$10$..."
+        emailVerified:
+          type: boolean
+          example: true
+    
+    Course:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: "60d21b4667d0d8992e610c86"
+        title:
+          type: string
+          example: "JavaScript Fundamentals"
+        description:
+          type: string
+          example: "Learn the basics of JavaScript programming"
+        videos:
+          type: array
+          items:
+            $ref: '#/components/schemas/VideoObject'
+        totalMinutes:
+          type: number
+          example: 120
+    
+    VideoObject:
+      type: object
+      properties:
+        title:
+          type: string
+          example: "Introduction to JavaScript"
+        description:
+          type: string
+          example: "An overview of JavaScript basics"
+        url:
+          type: string
+          example: "/uploads/1620123456789-123456789.mp4"
+        duration:
+          type: number
+          example: 20
+    
+    Video:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: "60d21b4667d0d8992e610c87"
+        title:
+          type: string
+          example: "Introduction to JavaScript"
+        description:
+          type: string
+          example: "An overview of JavaScript basics"
+        url:
+          type: string
+          example: "/uploads/1620123456789-123456789.mp4"
+    
+    Enrollment:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: "60d21b4667d0d8992e610c88"
+        userId:
+          type: string
+          example: "60d21b4667d0d8992e610c85"
+        courseId:
+          type: string
+          example: "60d21b4667d0d8992e610c86"
+        enrolledAt:
+          type: string
+          format: date-time
+          example: "2023-05-01T12:00:00Z"
+    
+    UserProgress:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: "60d21b4667d0d8992e610c89"
+        userId:
+          type: string
+          example: "60d21b4667d0d8992e610c85"
+        courseId:
+          type: string
+          example: "60d21b4667d0d8992e610c86"
+        totalMinutes:
+          type: number
+          example: 120
+        completedMinutes:
+          type: number
+          example: 45
+        progress:
+          type: number
+          example: 38
