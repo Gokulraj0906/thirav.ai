@@ -28,6 +28,7 @@
     "passport-linkedin-oauth2": "^2.0.0",
     "passport-local": "^1.0.0",
     "passport-openidconnect": "^0.1.2",
+    "serverless-http": "^3.2.0",
     "swagger-ui-express": "^5.0.1",
     "yamljs": "^0.3.0"
   },
