@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Razorpay Payment Demo</title>
+</head>
+<body>
+  <h2>Buy Course</h2>
+  <input type="text" id="courseId" placeholder="Enter Course ID" />
+  <button id="payBtn">Pay Now</button>
+
+  <div id="message"></div>
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script>
+    const payBtn = document.getElementById('payBtn');
+    const messageDiv = document.getElementById('message');
+
+    payBtn.addEventListener('click', async () => {
+      const courseId = document.getElementById('courseId').value.trim();
+      if (!courseId) {
+        messageDiv.innerText = 'Please enter a Course ID';
+        return;
+      }
+
+      try {
+        // Call backend to create order
+        const orderRes = await fetch('/payment/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ courseId }),
+        });
+        const orderData = await orderRes.json();
+
+        if (!orderRes.ok) {
+          messageDiv.innerText = `Order creation failed: ${orderData.error || 'Unknown error'}`;
+          return;
+        }
+
+        // Open Razorpay checkout
+        const options = {
+          key: orderData.key, // Razorpay Key ID from backend
+          amount: orderData.amount * 100, // in paise
+          currency: orderData.currency,
+          order_id: orderData.orderId,
+          handler: async function (response) {
+            // On payment success, send details to backend for verification
+            const verifyRes = await fetch('/payment/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+
+            const verifyData = await verifyRes.json();
+            if (verifyRes.ok) {
+              messageDiv.innerText = `Payment Successful! Course ID: ${verifyData.courseId}`;
+            } else {
+              messageDiv.innerText = `Payment verification failed: ${verifyData.error || 'Unknown error'}`;
+            }
+          },
+          prefill: {
+            name: 'Your Name',
+            email: 'your.email@example.com',
+          },
+          theme: {
+            color: '#3399cc',
+          },
+        };
+
+        const rzp = new Razorpay(options);
+        rzp.open();
+
+      } catch (error) {
+        messageDiv.innerText = 'Error processing payment: ' + error.message;
+      }
+    });
+  </script>
+</body>
+</html>

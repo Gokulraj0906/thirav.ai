@@ -88,3 +88,5 @@ module.exports.handler = async (req, res) => {
   await connectDB();
   return handler(req, res);
 };
+
+module.exports = app;

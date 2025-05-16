@@ -4,63 +4,57 @@ const UserProgress = require('../models/UserProgress');
 const User = require('../models/User');
 const Course = require('../models/Course');
 const Enrollment = require('../models/Enrollment');
-const AdminLog = require('../models/AdminLog'); // Create this model for logging
+const AdminLog = require('../models/AdminLog');
 const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 require('dotenv').config();
 
-// Create rate limiter for admin routes
+// Environment configuration
+const DEV_MODE = process.env.NODE_ENV === 'production';
+
+// Rate limiter
 const adminLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: 'Too many requests from this IP, please try again later'
 });
-
-// Apply rate limiter to all admin routes
 router.use(adminLimiter);
 
 // Admin authentication middleware
 const adminAuth = async (req, res, next) => {
-  // Check if user is authenticated
-  if (!req.isAuthenticated()) {
-    return res.status(401).json({ error: 'Unauthorized: Please log in' });
-  }
-  
   try {
-    // Fetch the complete user object to check roles
-    const user = await User.findById(req.user._id);
-    
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
+    // Find the current user by cookie or token
+    const userId = req.cookies.userId || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
-    
-    // Check if account is active
-    if (user.status !== 'active') {
-      return res.status(403).json({ error: 'Account is not active' });
-    }
-    
-    // Check if user has admin role
-    if (!user.roles || !user.roles.includes('admin')) {
-      // Log failed admin access attempts for security monitoring
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(401).json({ error: 'User not found' });
+
+    // Check if user ID matches ADMIN_USER_ID from .env
+    if (user._id.toString() !== process.env.ADMIN_USER_ID) {
+      // Log unauthorized access attempt
       await new AdminLog({
         actionType: 'AUTH_FAILURE',
         userId: user._id,
-        details: 'Attempted to access admin area without admin role',
+        details: 'Attempted to access admin area without ADMIN_USER_ID',
         ipAddress: req.ip,
         userAgent: req.get('User-Agent')
       }).save();
-      
+
       return res.status(403).json({ error: 'Forbidden: Admin access required' });
     }
-    
-    // Add admin user info to request for logging
+
+    // User is authorized admin
     req.adminUser = {
       id: user._id,
       email: user.email,
       username: user.username
     };
-    
-    // Log successful admin login
+
     await new AdminLog({
       actionType: 'AUTH_SUCCESS',
       userId: user._id,
@@ -68,7 +62,7 @@ const adminAuth = async (req, res, next) => {
       ipAddress: req.ip,
       userAgent: req.get('User-Agent')
     }).save();
-    
+
     next();
   } catch (err) {
     console.error('Error in admin authentication:', err);
@@ -76,18 +70,11 @@ const adminAuth = async (req, res, next) => {
   }
 };
 
-// Apply admin authentication to all routes in this router
-router.use(adminAuth);
-
-// Admin action logger middleware
+// Admin action logging middleware
 const logAdminAction = async (req, res, next) => {
   const originalSend = res.send;
-  
-  // Override res.send to log the response status
-  res.send = function(body) {
+  res.send = function (body) {
     const status = res.statusCode;
-    
-    // Log the completed action
     new AdminLog({
       actionType: 'API_ACTION',
       userId: req.adminUser.id,
@@ -96,135 +83,183 @@ const logAdminAction = async (req, res, next) => {
       userAgent: req.get('User-Agent'),
       requestBody: JSON.stringify(req.body),
       responseStatus: status
-    }).save().catch(err => {
-      console.error('Error saving admin log:', err);
-    });
-    
-    // Call the original send method
+    }).save().catch(err => console.error('Error saving admin log:', err));
     return originalSend.call(this, body);
   };
-  
   next();
 };
 
-// Apply logging to all admin routes
+router.use(adminAuth);
 router.use(logAdminAction);
 
-// Get all user progress
-router.get('/progress-review', async (req, res) => {
+// Initialize email transporter
+let transporter = null;
+
+// Function to initialize and verify email transporter
+const initializeEmailTransporter = () => {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+    console.warn('Email configuration incomplete: Missing EMAIL_USER or EMAIL_PASSWORD');
+    return null;
+  }
+
   try {
-    const data = await UserProgress.find()
-      .populate('userId', 'email username')
-      .populate('courseId', 'title videos totalMinutes');
+    const transportConfig = {
+      service: process.env.EMAIL_SERVICE || 'gmail',
+      host: process.env.EMAIL_HOST,
+      port: process.env.EMAIL_PORT || 587,
+      secure: process.env.EMAIL_SECURE === 'true',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD
+      }
+    };
+
+    const newTransporter = nodemailer.createTransport(transportConfig);
     
-    res.json(data);
+    // Verify configuration immediately
+    newTransporter.verify((error, success) => {
+      if (error) {
+        console.error('Email transporter verification failed:', error);
+        transporter = null;
+      } else {
+        console.log('Email transporter initialized and verified successfully');
+        transporter = newTransporter;
+      }
+    });
+    
+    return newTransporter;
   } catch (err) {
-    console.error('Error fetching progress data:', err);
-    res.status(500).json({ error: 'Failed to fetch user progress' });
+    console.error('Failed to initialize email transporter:', err);
+    return null;
+  }
+};
+
+// Initialize transporter on startup
+initializeEmailTransporter();
+
+// Generate random password
+const generateTempPassword = () => {
+  return crypto.randomBytes(4).toString('hex');
+};
+
+// Route to test email configuration
+router.get('/test-email', async (req, res) => {
+  try {
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+      return res.status(500).json({
+        message: 'Email configuration incomplete',
+        emailUser: process.env.EMAIL_USER ? 'Set' : 'Not set',
+        emailPassword: process.env.EMAIL_PASSWORD ? 'Set' : 'Not set',
+        emailService: process.env.EMAIL_SERVICE || 'gmail (default)'
+      });
+    }
+    
+    // Try to initialize transporter if it's not available
+    if (!transporter) {
+      transporter = initializeEmailTransporter();
+      
+      if (!transporter) {
+        return res.status(500).json({
+          message: 'Failed to initialize email transporter',
+          emailUser: process.env.EMAIL_USER ? 'Set' : 'Not set',
+          emailPassword: process.env.EMAIL_PASSWORD ? 'Set' : 'Not set'
+        });
+      }
+    }
+    
+    // Verify transporter
+    transporter.verify((error, success) => {
+      if (error) {
+        return res.status(500).json({
+          message: 'Email configuration verification failed',
+          error: error.message
+        });
+      } else {
+        return res.status(200).json({
+          message: 'Email configuration is working properly',
+          success: true
+        });
+      }
+    });
+  } catch (err) {
+    console.error('Error testing email configuration:', err);
+    res.status(500).json({
+      message: 'Error testing email configuration',
+      error: err.message
+    });
   }
 });
 
-// Configure email transport with better error handling
-const createTransporter = () => {
-  // Check if email credentials are properly configured
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.error('Email configuration is missing. Please check environment variables.');
-    return null;
-  }
-  
-  return nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    },
-    pool: true, // use pooled connections
-    maxConnections: 5, // limit simultaneous connections
-    maxMessages: 100, // limit messages per connection
-  });
-};
-
-// Email sending function with retry logic
-const sendEmailWithRetry = async (mailOptions, retries = 3) => {
-  const transporter = createTransporter();
-  
-  if (!transporter) {
-    throw new Error('Email transporter could not be created');
-  }
-  
-  let lastError = null;
-  
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      // Verify transporter connection
-      await transporter.verify();
-      
-      // Send email
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`Email sent successfully (${mailOptions.to}): ${info.messageId}`);
-      
-      // Log successful email
-      await new AdminLog({
-        actionType: 'EMAIL_SENT',
-        details: `Email sent to ${mailOptions.to} - Subject: ${mailOptions.subject}`,
-        metadata: { emailId: info.messageId, recipient: mailOptions.to }
-      }).save();
-      
-      return info;
-    } catch (error) {
-      lastError = error;
-      console.error(`Email sending attempt ${attempt} failed:`, error);
-      
-      // Wait before retry (exponential backoff)
-      if (attempt < retries) {
-        const delay = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s, ...
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-  }
-  
-  // Log failed email after all retries
-  await new AdminLog({
-    actionType: 'EMAIL_FAILED',
-    details: `Failed to send email to ${mailOptions.to} after ${retries} attempts`,
-    metadata: { error: lastError.message, recipient: mailOptions.to }
-  }).save().catch(console.error);
-  
-  throw new Error(`Failed to send email after ${retries} attempts: ${lastError.message}`);
-};
-
-// Grant course access to user
+// Grant course access
 router.post('/grant-access', async (req, res) => {
-  const { email, courseName } = req.body;
+  const { email, courseName, courseId } = req.body;
   
-  if (!email || !courseName) {
-    return res.status(400).json({ error: 'Email and course name are required' });
+  if (!email || (!courseName && !courseId)) {
+    return res.status(400).json({ error: 'Email and either courseName or courseId are required' });
   }
 
   try {
-    // Find user and course
-    const user = await User.findOne({ email });
-    const course = await Course.findOne({ title: courseName });
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    // Try to initialize transporter if it's not already available
+    if (!transporter) {
+      transporter = initializeEmailTransporter();
     }
     
+    // Log email config status
+    const emailConfigStatus = {
+      transporterAvailable: !!transporter,
+      emailUser: process.env.EMAIL_USER ? 'Set' : 'Not set',
+      emailPassword: process.env.EMAIL_PASSWORD ? 'Set' : 'Not set',
+      emailService: process.env.EMAIL_SERVICE || 'gmail (default)'
+    };
+
+    
+    // Find or create user
+    let user = await User.findOne({ email });
+    let isNewUser = false;
+    let tempPassword = null;
+
+    if (!user) {
+      tempPassword = generateTempPassword();
+      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+      user = new User({
+        email,
+        username: email.split('@')[0],
+        password: hashedPassword,
+        roles: ['user'],
+        status: 'active'
+      });
+
+      await user.save();
+      isNewUser = true;
+    }
+
+    // Find course
+    let course = courseId
+      ? await Course.findById(courseId)
+      : await Course.findOne({ title: courseName });
+
     if (!course) {
       return res.status(404).json({ error: 'Course not found' });
     }
-    
-    // Check if already enrolled
-    const existingProgress = await UserProgress.findOne({
-      userId: user._id,
-      courseId: course._id
+
+    // Check for existing progress
+    const existingProgress = await UserProgress.findOne({ 
+      userId: user._id, 
+      courseId: course._id 
     });
     
+    // If user already has access, just return success
     if (existingProgress) {
-      return res.json({ message: 'User already has access to this course' });
+      return res.json({ 
+        message: 'User already has access to this course',
+        success: true,
+        courseTitle: course.title,
+        userEmail: user.email
+      });
     }
-    
-    // Create new UserProgress entry
+
+    // Create User Progress
     const progress = new UserProgress({
       userId: user._id,
       courseId: course._id,
@@ -234,214 +269,245 @@ router.post('/grant-access', async (req, res) => {
       status: 'in progress'
     });
     await progress.save();
-    
-    // Create new Enrollment entry
+
+    // Create enrollment
     const enrollment = new Enrollment({
-      userId: user._id,
-      courseId: course._id,
-      enrolledAt: new Date(),
-      enrolledBy: req.adminUser.id
+      user: user._id,
+      course: course._id,
+      enrolledAt: new Date()
     });
     await enrollment.save();
-    
-    // Send email notification with improved error handling
+
     let emailSent = false;
-    try {
-      const mailOptions = {
-        from: `"${process.env.SITE_NAME || 'Learning Platform'}" <${process.env.EMAIL_USER}>`,
-        to: user.email,
-        subject: `Course Access Granted: ${course.title}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 5px;">
-            <h2 style="color: #4a90e2;">Course Access Granted</h2>
-            <p>Dear ${user.username || 'Student'},</p>
-            <p>We're pleased to inform you that you've been granted access to the following course:</p>
-            <h3 style="background-color: #f0f2f5; padding: 10px; border-radius: 4px;">${course.title}</h3>
-            <p>You can now access this course through your learning dashboard.</p>
-            <p><a href="${process.env.SITE_URL || 'https://learningplatform.com'}/dashboard" 
-                  style="background-color: #4a90e2; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; display: inline-block;">
-                  Go to Dashboard
-               </a></p>
-            <p>Happy learning!</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-            <p style="font-size: 12px; color: #6c757d;">This is an automated message. Please do not reply to this email.</p>
-          </div>
-        `
-      };
-      
-      await sendEmailWithRetry(mailOptions);
-      emailSent = true;
-      console.log(`Email sent to ${user.email} for course ${course.title}`);
-    } catch (emailError) {
-      console.error('Failed to send email notification:', emailError);
-      emailSent = false;
-    }
+    let emailError = null;
     
-    // Log the action with outcome
+    // Prepare email content
+    const mailOptions = {
+      from: `"${process.env.SITE_NAME || 'Thirav.ai'}" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: `Course Access Granted: ${course.title}`,
+      html: `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Course Access Granted</title>
+          <style>
+            body {
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .email-container {
+              border-radius: 8px;
+              overflow: hidden;
+              border: 1px solid #e0e0e0;
+              box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+            }
+            .email-header {
+              background-color: #007bff;
+              color: white;
+              padding: 20px;
+              text-align: center;
+            }
+            .email-header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .email-body {
+              background-color: #ffffff;
+              padding: 30px;
+            }
+            .course-info {
+              font-size: 18px;
+              font-weight: bold;
+              text-align: center;
+              margin: 20px 0;
+              color: #007bff;
+              padding: 10px;
+              background-color: #f8f9fa;
+              border-radius: 4px;
+            }
+            .password-info {
+              font-size: 16px;
+              font-weight: bold;
+              text-align: center;
+              margin: 20px 0;
+              color: #dc3545;
+              padding: 10px;
+              background-color: #f8f9fa;
+              border-radius: 4px;
+            }
+            .cta-button {
+              display: inline-block;
+              padding: 12px 24px;
+              background-color: #007bff;
+              color: white;
+              text-decoration: none;
+              border-radius: 4px;
+              font-weight: bold;
+              margin: 20px 0;
+            }
+            .email-footer {
+              background-color: #f8f9fa;
+              padding: 15px;
+              text-align: center;
+              font-size: 12px;
+              color: #666;
+            }
+            .logo {
+              font-size: 26px;
+              font-weight: bold;
+              margin-bottom: 10px;
+            }
+            .logo span {
+              color: rgb(0, 0, 0);
+            }
+          </style>
+        </head>
+        <body>
+          <div class="email-container">
+            <div class="email-header">
+              <div class="logo">thirav<span>.ai</span></div>
+              <h1>Course Access Granted</h1>
+            </div>
+            <div class="email-body">
+              <p>Hello ${user.username || 'Student'},</p>
+              <p>Great news! You've been granted access to the following course:</p>
+              
+              <div class="course-info">${course.title}</div>
+              
+              ${isNewUser ? `
+              <p>Since this is your first time with us, we've created an account for you:</p>
+              <div class="password-info">Your temporary password is: ${tempPassword}</div>
+              <p>Please change this password after your first login for security.</p>
+              ` : ''}
+              
+              <p>You can access your course immediately by clicking the button below:</p>
+              
+              <div style="text-align: center;">
+                <a href="${process.env.SITE_URL || 'https://thirav.ai'}/dashboard" class="cta-button">Go to Your Dashboard</a>
+              </div>
+              
+              <p>If you have any questions or need assistance, please don't hesitate to contact our support team.</p>
+              <p>Happy learning!</p>
+            </div>
+            <div class="email-footer">
+              <p>&copy; ${new Date().getFullYear()} thirav.ai. All rights reserved.</p>
+              <p>This is an automated message, please do not reply to this email.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+Course Access Granted: ${course.title}
+
+Hello ${user.username || 'Student'},
+
+Great news! You've been granted access to the following course: ${course.title}
+
+${isNewUser ? `Since this is your first time with us, we've created an account for you.\nYour temporary password is: ${tempPassword}\nPlease change this password after your first login for security.` : ''}
+
+You can access your course immediately by visiting: ${process.env.SITE_URL || 'https://thirav.ai'}/dashboard
+
+If you have any questions or need assistance, please don't hesitate to contact our support team.
+
+Happy learning!
+
+© ${new Date().getFullYear()} thirav.ai. All rights reserved.
+This is an automated message, please do not reply to this email.
+      `
+    };
+    
+    // Attempt to send email if transporter is available
+    if (transporter) {
+      try {
+        const info = await transporter.sendMail(mailOptions);
+        emailSent = true;
+        
+        // Log successful email
+        await new AdminLog({
+          actionType: 'EMAIL_SENT',
+          userId: req.adminUser.id,
+          details: `Email sent to ${user.email} for course "${course.title}"`,
+          metadata: { messageId: info.messageId }
+        }).save();
+      } catch (err) {
+        emailError = err.message;
+        console.error('Failed to send email:', err);
+        
+        // Log email failure
+        await new AdminLog({
+          actionType: 'EMAIL_FAILED',
+          userId: req.adminUser.id,
+          details: `Failed to send email to ${user.email}`,
+          metadata: { error: err.message }
+        }).save();
+      }
+    } else {
+      emailError = "Email transporter not available";
+      console.warn('Email transporter not available, skipping email send');
+      
+      // For development mode, log the temp password even if email fails
+    }
+
+    // Log the access grant
     await new AdminLog({
       actionType: 'COURSE_ACCESS_GRANTED',
       userId: req.adminUser.id,
-      details: `Granted access to "${course.title}" for user ${user.email}`,
-      metadata: { 
-        courseId: course._id, 
+      details: `Granted "${course.title}" to ${user.email}`,
+      metadata: {
+        courseId: course._id,
         recipientId: user._id,
-        emailSent 
+        emailSent,
+        emailError,
+        isNewUser
       }
     }).save();
-    
-    return res.json({
-      message: emailSent 
-        ? 'Access granted successfully. Email notification sent to user.'
-        : 'Access granted successfully, but email notification failed. User has access to the course.',
-      emailSent: emailSent
-    });
-  } catch (err) {
-    console.error('Error granting access:', err);
-    res.status(500).json({ error: 'Error granting access' });
-  }
-});
 
-// Manage admin users route
-router.get('/manage-admins', async (req, res) => {
-  try {
-    const admins = await User.find(
-      { roles: 'admin' }, 
-      { username: 1, email: 1, lastLogin: 1, status: 1 }
-    );
-    
-    res.json(admins);
-  } catch (err) {
-    console.error('Error fetching admin users:', err);
-    res.status(500).json({ error: 'Failed to fetch admin users' });
-  }
-});
-
-// Add admin role to a user
-router.post('/add-admin', async (req, res) => {
-  try {
-    const { email, securityCode } = req.body;
-    
-    // Verify security code matches environment variable 
-    if (!securityCode || securityCode !== process.env.ADMIN_SECURITY_CODE) {
-      // Log invalid security code attempt
-      await new AdminLog({
-        actionType: 'SECURITY_VIOLATION',
-        userId: req.adminUser.id,
-        details: 'Invalid security code used when attempting to add admin role',
-        ipAddress: req.ip
-      }).save();
-      
-      return res.status(403).json({ error: 'Invalid security code' });
-    }
-    
-    // Find user by email
-    const user = await User.findOne({ email });
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    // Skip if already an admin
-    if (user.roles.includes('admin')) {
-      return res.json({ 
-        message: 'User already has admin privileges',
-        user: {
-          email: user.email,
-          username: user.username,
-          roles: user.roles
-        }
-      });
-    }
-    
-    // Add admin role
-    user.roles.push('admin');
-    await user.save();
-    
-    // Log this critical action
-    await new AdminLog({
-      actionType: 'ADMIN_ROLE_ADDED',
-      userId: req.adminUser.id,
-      details: `Admin role granted to ${user.email} by ${req.adminUser.email}`,
-      ipAddress: req.ip,
-      severity: 'HIGH'
-    }).save();
-    
-    return res.json({
-      message: 'Admin role added successfully',
-      user: {
-        email: user.email,
-        username: user.username,
-        roles: user.roles
+    // Return appropriate response
+    res.json({
+      message: emailSent ? 'Access granted & email sent' : 'Access granted but email failed',
+      success: true,
+      emailSent,
+      emailError,
+      courseTitle: course.title,
+      userEmail: user.email,
+      isNewUser,
+      tempPassword: DEV_MODE && isNewUser ? tempPassword : undefined,
+      emailConfig: {
+        userSet: !!process.env.EMAIL_USER,
+        passSet: !!process.env.EMAIL_PASSWORD,
+        serviceSet: !!process.env.EMAIL_SERVICE,
+        hostSet: !!process.env.EMAIL_HOST
       }
     });
   } catch (err) {
-    console.error('Error adding admin role:', err);
-    res.status(500).json({ error: 'Failed to add admin role' });
-  }
-});
-
-// Remove admin role from a user
-router.post('/remove-admin', async (req, res) => {
-  try {
-    const { userId, securityCode } = req.body;
-    
-    // Verify security code
-    if (!securityCode || securityCode !== process.env.ADMIN_SECURITY_CODE) {
-      // Log invalid security code attempt
-      await new AdminLog({
-        actionType: 'SECURITY_VIOLATION',
-        userId: req.adminUser.id,
-        details: 'Invalid security code used when attempting to remove admin role',
-        ipAddress: req.ip
-      }).save();
-      
-      return res.status(403).json({ error: 'Invalid security code' });
-    }
-    
-    // Prevent self-removal
-    if (userId === req.adminUser.id.toString()) {
-      return res.status(400).json({ error: 'Cannot remove your own admin privileges' });
-    }
-    
-    const user = await User.findById(userId);
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    // Remove admin role
-    user.roles = user.roles.filter(role => role !== 'admin');
-    await user.save();
-    
-    // Log this critical action
-    await new AdminLog({
-      actionType: 'ADMIN_ROLE_REMOVED',
-      userId: req.adminUser.id,
-      details: `Admin role removed from ${user.email} by ${req.adminUser.email}`,
-      ipAddress: req.ip,
-      severity: 'HIGH'
-    }).save();
-    
-    return res.json({
-      message: 'Admin role removed successfully',
-      user: {
-        email: user.email,
-        username: user.username,
-        roles: user.roles
-      }
+    console.error('Grant access error:', err);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: err.message,
+      stack: DEV_MODE ? err.stack : undefined
     });
-  } catch (err) {
-    console.error('Error removing admin role:', err);
-    res.status(500).json({ error: 'Failed to remove admin role' });
   }
 });
 
-// Serve admin dashboard
-router.get('/dashboard', (req, res) => {
-  res.render('admin/dashboard', { 
-    title: 'Admin Dashboard',
-    user: req.adminUser
-  });
+// Get all user progress
+router.get('/progress-review', async (req, res) => {
+  try {
+    const data = await UserProgress.find()
+      .populate('userId', 'email username')
+      .populate('courseId', 'title totalMinutes');
+    res.json(data);
+  } catch (err) {
+    console.error('Fetch progress error:', err);
+    res.status(500).json({ error: 'Failed to fetch user progress' });
+  }
 });
 
 module.exports = router;
