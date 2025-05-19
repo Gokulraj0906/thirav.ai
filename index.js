@@ -27,7 +27,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 app.use(cors({
-  origin: 'http://localhost:3001',
+  origin: ['http://localhost:3001', 'http://192.168.1.7:3001'],
   credentials: true,
 }));
 
@@ -84,16 +84,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public/home.html'));
 });
 
-// Authentication middleware helper
-function ensureAuth(req, res, next) {
-  if (req.isAuthenticated()) return next();
-  res.status(401).json({ message: 'Unauthorized' });
-}
-
 // Protected dashboard route
-app.get('/dashboard', ensureAuth, (req, res) => {
-  const name = req.user.username || req.user.displayName;
-  const userId = req.user._id;
+app.get('/dashboard', (req, res) => {
+
+  const name = req.cookies.username ;
+  const userId = req.cookies.userId;
 
   res.json({ userId, username: name });
 });
@@ -120,6 +115,8 @@ app.get('/logout', (req, res, next) => {
     if (err) return next(err);
     res.clearCookie('userId');
     res.clearCookie('username');
+    res.clearCookie('isLoggedIn');
+    res.clearCookie('token');
     res.redirect('/');
   });
 });

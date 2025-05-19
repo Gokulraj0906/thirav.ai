@@ -20,7 +20,7 @@ function checkAuth(req, res, next) {
 // Upload videos to S3
 router.post('/upload-videos', checkAuth, upload.any(), async (req, res) => {
   try {
-    const maxCount = Number(req.body.maxCount) || 100;
+    const maxCount = Number(req.body?.maxCount) || 100;
     const files = req.files;
 
     if (!files || files.length === 0) {
