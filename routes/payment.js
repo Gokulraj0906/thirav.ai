@@ -9,7 +9,7 @@ const Payment = require('../models/Payment');
 
 router.post('/create-order', async (req, res) => {
   try {
-    const userId = req.cookies.userId;
+    const userId = req.body.userId || req.query.userId;
     const { courseId } = req.body;
 
     if (!courseId) {
@@ -103,8 +103,8 @@ router.post('/verify', async (req, res) => {
 // Check if user has access to course
 router.get('/check-access/:courseId', async (req, res) => {
   try {
-    const { courseId } = req.params;
-    const userId = req.cookies.userId || req.query.userId;
+    const { courseId } = req.params || req.query.userId;
+    const userId = req.query.userId;
 
     const payment = await Payment.findOne({
       user: userId,

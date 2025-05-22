@@ -4,21 +4,14 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const Course = require('../models/Course');
 const s3 = require('../utils/s3');
-
+const authenticateJWT = require('../middleware/auth');
+const authorizeAdmin = require('../middleware/authorizeAdmin');
 // Multer config
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 1000000000 } });
 
-// Simple auth middleware
-function checkAuth(req, res, next) {
-  if (req.cookies.userId !== process.env.USER_ID) {
-    return res.status(403).json({ message: 'Unauthorized' });
-  }
-  next();
-}
-
 // Upload videos to S3
-router.post('/upload-videos', checkAuth, upload.any(), async (req, res) => {
+router.post('/upload-videos', authenticateJWT, authorizeAdmin, upload.any(), async (req, res) => {
   try {
     const maxCount = Number(req.body?.maxCount) || 100;
     const files = req.files;
@@ -52,7 +45,7 @@ router.post('/upload-videos', checkAuth, upload.any(), async (req, res) => {
 });
 
 // Create a new course
-router.post('/create', checkAuth, async (req, res) => {
+router.post('/create', authenticateJWT, authorizeAdmin, async (req, res) => {
   try {
     const { title, description, price, sections } = req.body;
 
@@ -93,7 +86,7 @@ router.post('/create', checkAuth, async (req, res) => {
 });
 
 // Get all courses
-router.get('/courses', async (req, res) => {
+router.get('/courses', authenticateJWT, async (req, res) => {
   try {
     const courses = await Course.find({}, 'title description price totalMinutes sections');
     res.status(200).json({ courses });
@@ -104,7 +97,7 @@ router.get('/courses', async (req, res) => {
 });
 
 // Get course by ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticateJWT, async (req, res) => {
   try {
     const course = await Course.findById(req.params.id);
     if (!course) return res.status(404).json({ message: 'Course not found' });
@@ -116,7 +109,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Full update course by ID (replace entire course data)
-router.put('/:id', checkAuth, async (req, res) => {
+router.put('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   try {
     const { title, description, price, sections } = req.body;
 
@@ -161,7 +154,7 @@ router.put('/:id', checkAuth, async (req, res) => {
 });
 
 // Partial update course by ID (PATCH)
-router.patch('/:id', checkAuth, async (req, res) => {
+router.patch('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   try {
     const updates = req.body;
 
@@ -192,7 +185,7 @@ router.patch('/:id', checkAuth, async (req, res) => {
 });
 
 // Delete course by ID
-router.delete('/:id', checkAuth, async (req, res) => {
+router.delete('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   try {
     const deletedCourse = await Course.findByIdAndDelete(req.params.id);
     if (!deletedCourse) return res.status(404).json({ message: 'Course not found' });

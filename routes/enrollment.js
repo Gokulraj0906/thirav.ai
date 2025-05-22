@@ -29,8 +29,7 @@ router.get('/check', async (req, res) => {
 
 //Enroll a user ONLY after successful payment
 router.post('/enroll', async (req, res) => {
-  const userId = req.user?.id || req.query.userId;
-  const { courseId } = req.body || req.query;
+  const { courseId, userId } = req.body || req.query;
 
   if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
     return res.status(400).json({ message: 'Invalid or missing userId' });

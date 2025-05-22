@@ -1,10 +1,7 @@
 require('dotenv').config();
 const express = require('express');
-const session = require('express-session');
-const passport = require('passport');
 const mongoose = require('mongoose');
 const path = require('path');
-const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const YAML = require('yamljs');
@@ -16,108 +13,91 @@ const enrollmentRoutes = require('./routes/enrollment');
 const progressRoutes = require('./routes/userProgress');
 const paymentRoutes = require('./routes/payment');
 
-require('./auth/passport'); // Passport config
+const authenticateJWT = require('./middleware/auth'); // JWT middleware
 
 const swaggerDocument = YAML.load('./docs/swagger.yaml');
-
 const app = express();
 
 // Middleware setup
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// CORS configuration for JWT-based API
 app.use(cors({
   origin: ['http://localhost:3001', 'http://192.168.1.7:3001'],
   credentials: true,
 }));
 
-app.use(cookieParser());
+// Static files
 app.use(express.static('public'));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Swagger docs
+// Swagger documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-// Request logging
+// Request logging middleware
 app.use((req, res, next) => {
   console.log(`Incoming Request: ${req.method} ${req.url}`);
   next();
 });
 
-// Session setup (for Passport OAuth or session auth)
-app.use(session({
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: { 
-    maxAge: 24 * 60 * 60 * 1000,
-    secure: process.env.NODE_ENV === 'production',
-  }
-}));
+// Public routes (no authentication required)
+app.use('/auth', authRoutes); // Login/Signup returns JWT
 
-// Passport initialization
-app.use(passport.initialize());
-app.use(passport.session());
-
-// Set user cookies after authentication
-app.use((req, res, next) => {
-  if (req.user) {
-    const name = req.user.username || req.user.displayName;
-    const userId = req.user._id;
-    res.cookie('userId', userId, { maxAge: 86400000, httpOnly: false, sameSite: 'lax' });
-    res.cookie('username', name, { maxAge: 86400000, httpOnly: false, sameSite: 'lax' });
-  }
-  next();
-});
-
-// Routes
-app.use('/auth', authRoutes);
+// Protected routes (JWT authentication required)
 app.use('/course', courseRoutes);
-app.use('/api/enrollment', enrollmentRoutes);
-app.use('/api/progress', progressRoutes);
-app.use('/admin', adminRoutes);
-app.use('/admin', express.static(path.join(__dirname, 'public/admin')));
-app.use('/payment', paymentRoutes);
+app.use('/api/enrollment', authenticateJWT, enrollmentRoutes);
+app.use('/api/progress', authenticateJWT, progressRoutes);
+app.use('/admin', authenticateJWT, adminRoutes);
+app.use('/payment', authenticateJWT, paymentRoutes);
 
 // Public homepage
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public/home.html'));
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Server Status</title>
+        <style>
+          body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f4;
+            text-align: center;
+          }
+        </style>
+      </head>
+      <body>
+        <div>
+          <h1>Server's running. We don’t know how, but we’re not touching it.</h1>
+        </div>
+      </body>
+    </html>
+  `);
 });
+
+
 
 // Protected dashboard route
-app.get('/dashboard', (req, res) => {
-
-  const name = req.cookies.username ;
-  const userId = req.cookies.userId;
-
-  res.json({ userId, username: name });
+app.get('/dashboard', authenticateJWT, (req, res) => {
+  res.json({
+    userId: req.user._id,
+    username: req.user.username || req.user.displayName,
+    email: req.user.email
+  });
 });
 
-// Check login status
-app.get('/isLoggedIn', (req, res) => {
-  if (req.isAuthenticated() && req.user) {
-    const name = req.user.username || req.user.displayName;
-    const userId = req.user._id;
-
-    res.json({
-      isLoggedIn: true,
-      userId,
-      username: name
-    });
-  } else {
-    res.json({ isLoggedIn: false });
-  }
-});
-
-// Logout route
-app.get('/logout', (req, res, next) => {
-  req.logout(err => {
-    if (err) return next(err);
-    res.clearCookie('userId');
-    res.clearCookie('username');
-    res.clearCookie('isLoggedIn');
-    res.clearCookie('token');
-    res.redirect('/');
+// JWT-based authentication check endpoint
+app.get('/auth/check', authenticateJWT, (req, res) => {
+  res.json({
+    isLoggedIn: true,
+    userId: req.user._id,
+    username: req.user.username || req.user.displayName,
+    email: req.user.email
   });
 });
 

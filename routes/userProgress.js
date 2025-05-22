@@ -12,7 +12,6 @@ async function updateOverallProgress(userId, courseId) {
     if (!userProgress || videoProgressRecords.length === 0) return;
 
     let totalCompleted = 0;
-
     videoProgressRecords.forEach(({ completedMinutes }) => {
       totalCompleted += completedMinutes || 0;
     });
@@ -33,7 +32,6 @@ async function updateOverallProgress(userId, courseId) {
 
 // Update course or video progress
 router.post('/update', async (req, res) => {
-  const cookieUserId = req.cookies.userId;  // userId from cookie
   const {
     userId,
     courseId,
@@ -42,23 +40,17 @@ router.post('/update', async (req, res) => {
     progress,
     totalProgress,
     totalMinutes,
-    watchedMinutes,  // new: amount to increment completedMinutes
-  } = req.body;
+    watchedMinutes,
+  } = req.body || req.query;
 
-  if (!cookieUserId) {
-    return res.status(403).json({ error: 'Unauthorized access: No user ID cookie' });
-  }
-
-  if (cookieUserId !== userId) {
-    return res.status(403).json({ error: 'Unauthorized access: User ID mismatch' });
-  }
+  if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
   try {
     if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(courseId)) {
       return res.status(400).json({ error: 'Invalid user or course ID' });
     }
 
-    // 1) Handle incrementing course completedMinutes by watchedMinutes
+    // 1) Increment completedMinutes by watchedMinutes
     if (typeof watchedMinutes === 'number') {
       if (watchedMinutes < 0) {
         return res.status(400).json({ error: 'watchedMinutes cannot be negative' });
@@ -73,18 +65,15 @@ router.post('/update', async (req, res) => {
         userProgress.completedMinutes + watchedMinutes,
         userProgress.totalMinutes
       );
-
       userProgress.progress = Math.round(
         (userProgress.completedMinutes / userProgress.totalMinutes) * 100
       );
-
       userProgress.status =
         userProgress.progress === 100
           ? 'completed'
           : userProgress.progress > 0
           ? 'in progress'
           : 'not started';
-
       userProgress.lastUpdated = new Date();
 
       await userProgress.save();
@@ -92,7 +81,7 @@ router.post('/update', async (req, res) => {
       return res.json({ message: 'Course progress incremented', progress: userProgress });
     }
 
-    // 2) Handle setting total course progress directly (overwrite)
+    // 2) Overwrite total course progress
     if (totalProgress === true) {
       if (typeof totalMinutes !== 'number' || totalMinutes <= 0) {
         return res.status(400).json({ error: 'Invalid total minutes' });
@@ -124,7 +113,7 @@ router.post('/update', async (req, res) => {
       return res.json({ message: 'Course progress updated', progress: userProgress });
     }
 
-    // 3) Handle updating individual video progress
+    // 3) Update individual video progress
     if (videoId) {
       if (typeof videoId !== 'string' || videoId.trim() === '') {
         return res.status(400).json({ error: 'Invalid video ID' });
@@ -165,16 +154,16 @@ router.post('/update', async (req, res) => {
 
 // Reset video progress
 router.post('/reset-video', async (req, res) => {
-  const { userId, courseId, videoId } = req.body;
+  const { userId, courseId, videoId } = req.body || req.query;
 
-  const cookieUserId = req.cookies.userId;
-  if (!cookieUserId) {
-    return res.status(403).json({ error: 'Unauthorized access: No user ID cookie' });
+  if (!userId || !courseId || !videoId) {
+    return res.status(400).json({ error: 'Missing userId, courseId, or videoId' });
+  }
+  if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(courseId)) {
+    return res.status(400).json({ error: 'Invalid user or course ID' });
   }
 
-  if (cookieUserId !== userId) {
-    return res.status(403).json({ error: 'Unauthorized access: User ID mismatch' });
-  }
+  if (!videoId) return res.status(400).json({ error: 'Missing videoId' });
 
   try {
     if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(courseId) || !videoId) {
@@ -197,15 +186,12 @@ router.post('/reset-video', async (req, res) => {
 
 // Get user progress
 router.get('/get', async (req, res) => {
-  const cookieUserId = req.cookies.userId; // from cookie
   const { userId, courseId } = req.query;
 
-  if (!cookieUserId) {
-    return res.status(403).json({ error: 'Unauthorized: No user ID cookie' });
-  }
-
-  if (cookieUserId !== userId) {
-    return res.status(403).json({ error: 'Unauthorized access: User ID mismatch' });
+  if (!userId) return res.status(400).json({ error: 'Missing userId' });
+  if (!courseId) return res.status(400).json({ error: 'Missing courseId' });
+  if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(courseId)) {
+    return res.status(400).json({ error: 'Invalid user or course ID' });
   }
 
   try {
@@ -228,6 +214,5 @@ router.get('/get', async (req, res) => {
     return res.status(500).json({ error: 'Failed to get progress' });
   }
 });
-
 
 module.exports = router;

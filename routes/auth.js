@@ -2,7 +2,6 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const passport = require('../auth/passport');
 const router = express.Router();
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
@@ -26,57 +25,6 @@ const generateToken = user => {
     SECRET,
     { expiresIn: '1d' }
   );
-};
-
-// Set auth cookies helper function
-const setAuthCookies = (res, user) => {
-  const name = user.username || user.displayName;
-  const userId = user._id;
-  
-  res.cookie('userId', userId, { 
-    maxAge: 24 * 60 * 60 * 1000,
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: !DEV_MODE // Use secure in production
-  });
-  
-  res.cookie('username', name, { 
-    maxAge: 24 * 60 * 60 * 1000,
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: !DEV_MODE // Use secure in production
-  });
-  
-  // Add a non-httpOnly cookie for frontend access
-  res.cookie('isLoggedIn', 'true', { 
-    maxAge: 24 * 60 * 60 * 1000,
-    httpOnly: false,
-    sameSite: 'lax',
-    secure: !DEV_MODE // Use secure in production
-  });
-};
-
-// Authentication middleware
-const isAuthenticated = (req, res, next) => {
-  // Check if authenticated via session
-  if (req.isAuthenticated()) {
-    return next();
-  }
-  
-  // Check if authenticated via token
-  try {
-    const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
-    if (token) {
-      const decoded = jwt.verify(token, SECRET);
-      req.user = { id: decoded.id, username: decoded.username, email: decoded.email };
-      return next();
-    }
-  } catch (err) {
-    console.error('Auth middleware error:', err);
-  }
-  
-  // If not authenticated by either method
-  return res.status(401).json({ message: 'Unauthorized' });
 };
 
 // Initialize email transporter if credentials are available
@@ -338,30 +286,17 @@ router.post('/verify-otp', async (req, res) => {
     // Clean up used OTP
     otpStore.delete(email);
 
+    // Generate JWT token
     const token = generateToken(newUser);
     
-    // Set cookies for authentication
-    setAuthCookies(res, newUser);
-    
-    // Also set the JWT token as a cookie
-    res.cookie('token', token, { 
-      maxAge: 24 * 60 * 60 * 1000,
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: !DEV_MODE
-    });
-
-    // Log in the user after signup
-    req.login(newUser, err => {
-      if (err) {
-        console.error('Login after signup error:', err);
+    res.status(201).json({
+      message: 'Signup successful',
+      token,
+      user: { 
+        id: newUser._id, 
+        username: newUser.username, 
+        email: newUser.email 
       }
-      
-      res.status(201).json({
-        message: 'Signup successful',
-        token,
-        user: { id: newUser._id, username: newUser.username, email: newUser.email }
-      });
     });
   } catch (err) {
     console.error('OTP Verification Error:', err);
@@ -515,7 +450,6 @@ router.post('/resend-otp', async (req, res) => {
     } catch (emailError) {
       console.error('Email sending error:', emailError);
       
-
       if (DEV_MODE) {
         return res.status(200).json({ 
           message: 'Generated new OTP but email sending failed. Check OTP in server logs.',
@@ -532,77 +466,114 @@ router.post('/resend-otp', async (req, res) => {
 });
 
 // =================== LOGIN ===================
-router.post('/login', async (req, res, next) => {
-  passport.authenticate('local-login', { session: true }, (err, user, info) => {
-    if (err || !user) {
-      return res.status(400).json({ message: 'Login failed', error: info?.message || err });
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || req.query;
+    
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
-
-    // Log the user in - establish session
-    req.login(user, err => {
-      if (err) {
-        return next(err);
+    
+    // Check password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+    
+    // Generate JWT token
+    const token = generateToken(user);
+    
+    // Return the token and user info
+    res.status(200).json({
+      message: 'Login successful',
+      token,
+      user: { 
+        id: user._id, 
+        username: user.username, 
+        email: user.email 
       }
-      
-      const token = generateToken(user);
-      
-      // Set cookies for userId and username
-      setAuthCookies(res, user);
-      
-      // Also set the JWT token as a cookie
-      res.cookie('token', token, { 
-        maxAge: 24 * 60 * 60 * 1000,
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: !DEV_MODE
-      });
-      
-      res.json({
-        message: 'Login successful',
-        token,
-        user: { id: user._id, username: user.username, email: user.email }
-      });
     });
-  })(req, res, next);
+  } catch (err) {
+    console.error('Login Error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
 });
 
 // =================== PROTECTED ROUTE TEST ===================
-router.get('/protected-test', isAuthenticated, (req, res) => {
-  res.json({ 
-    message: 'You are authenticated!',
-    user: req.user
-  });
+router.get('/protected-test', async (req, res) => {
+  try {
+    // Get the token from the Authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Authorization header missing or invalid' });
+    }
+    
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ message: 'Token not provided' });
+    }
+    
+    // Verify the token
+    const decoded = jwt.verify(token, SECRET);
+    
+    // Find the user
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+    
+    res.json({ 
+      message: 'You are authenticated!',
+      user: { id: user._id, username: user.username, email: user.email }
+    });
+  } catch (err) {
+    console.error('Protected route error:', err);
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
 });
 
 // =================== UPDATE USERNAME ===================
-router.patch('/update-username', isAuthenticated, async (req, res) => {
+router.patch('/update-username', async (req, res) => {
   try {
-    let userId;
+    // Get the token from the Authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Authorization header missing or invalid' });
+    }
     
-    // Get user ID from req.user (set by isAuthenticated middleware)
-    userId = req.user.id || req.user._id;
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ message: 'Token not provided' });
+    }
     
-    const user = await User.findById(userId);
-    if (!user) return res.status(401).json({ message: 'User not found' });
-
+    // Verify the token
+    const decoded = jwt.verify(token, SECRET);
+    
+    // Find and update the user
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+    
     const { newUsername } = req.body;
     if (!newUsername) {
       return res.status(400).json({ message: 'New username is required.' });
     }
-
+    
     user.username = newUsername;
     const updatedUser = await user.save();
     
-    // Update cookie with new username
-    res.cookie('username', newUsername, { 
-      maxAge: 24 * 60 * 60 * 1000, 
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: !DEV_MODE
-    });
-
+    // Generate new token with updated info
+    const newToken = generateToken(updatedUser);
+    
     res.status(200).json({ 
       message: 'Username updated successfully', 
+      token: newToken,
       user: { 
         id: updatedUser._id, 
         username: updatedUser.username, 
@@ -610,146 +581,272 @@ router.patch('/update-username', isAuthenticated, async (req, res) => {
       } 
     });
   } catch (err) {
-    return res.status(500).json({ message: 'Server error', error: err.message });
-  }
-});
-
-// =================== OAUTH ROUTES (Session-Based) ===================
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-router.get('/google/callback',
-  passport.authenticate('google', { failureRedirect: '/' }),
-  (req, res) => {
-    // Set cookies after successful OAuth login
-    if (req.user) {
-      setAuthCookies(res, req.user);
-      
-      // Also set the JWT token
-      const token = generateToken(req.user);
-      res.cookie('token', token, { 
-        maxAge: 24 * 60 * 60 * 1000,
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: !DEV_MODE
-      });
+    console.error('Update username error:', err);
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Invalid token' });
     }
-    res.redirect('/dashboard');
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
-);
-
-router.get('/github', passport.authenticate('github', { scope: ['user:email'] }));
-router.get('/github/callback',
-  passport.authenticate('github', { failureRedirect: '/' }),
-  (req, res) => {
-    // Set cookies after successful OAuth login
-    if (req.user) {
-      setAuthCookies(res, req.user);
-      
-      // Also set the JWT token
-      const token = generateToken(req.user);
-      res.cookie('token', token, { 
-        maxAge: 24 * 60 * 60 * 1000,
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: !DEV_MODE
-      });
-    }
-    res.redirect('/dashboard');
-  }
-);
-
-router.get('/linkedin', passport.authenticate('linkedin-openid'));
-router.get('/linkedin/callback',
-  passport.authenticate('linkedin-openid', { failureRedirect: '/' }),
-  (req, res) => {
-    // Set cookies after successful OAuth login
-    if (req.user) {
-      setAuthCookies(res, req.user);
-      
-      // Also set the JWT token
-      const token = generateToken(req.user);
-      res.cookie('token', token, { 
-        maxAge: 24 * 60 * 60 * 1000,
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: !DEV_MODE
-      });
-    }
-    res.redirect('/dashboard');
-  }
-);
-
-// =================== LOGOUT ===================
-router.get('/logout', (req, res) => {
-  // Clear all auth cookies
-  res.clearCookie('userId');
-  res.clearCookie('username');
-  res.clearCookie('isLoggedIn');
-  res.clearCookie('token');
-  
-  req.logout(() => res.redirect('/'));
 });
 
 // =================== DELETE ACCOUNT ===================
-router.delete('/delete-account', isAuthenticated, async (req, res) => {
+router.delete('/delete-account', async (req, res) => {
   try {
-    let userId = req.user.id || req.user._id;
-    
-    const user = await User.findById(userId);
-    if (!user) return res.status(401).json({ message: 'User not found' });
-
-    await User.deleteOne({ _id: user._id });
-    
-    // Clear cookies
-    res.clearCookie('userId');
-    res.clearCookie('username');
-    res.clearCookie('isLoggedIn');
-    res.clearCookie('token');
-    
-    // Log out if using session auth
-    if (req.isAuthenticated()) {
-      req.logout(() => {});
+    // Get the token from the Authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Authorization header missing or invalid' });
     }
     
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ message: 'Token not provided' });
+    }
+    
+    // Verify the token
+    const decoded = jwt.verify(token, SECRET);
+    
+    // Find and delete the user
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+    
+    await User.deleteOne({ _id: user._id });
     res.status(200).json({ message: 'Account deleted successfully' });
   } catch (err) {
-    return res.status(500).json({ message: 'Server error', error: err.message });
-  }
-});
-
-// =================== CHECK LOGIN STATUS ===================
-router.get('/isLoggedIn', (req, res) => {
-  if (req.isAuthenticated() && req.user) {
-    res.json({ 
-      isLoggedIn: true,
-      userId: req.user._id,
-      username: req.user.username || req.user.displayName
-    });
-  } else {
-    // Try to verify via token
-    try {
-      const token = req.cookies.token;
-      if (token) {
-        const decoded = jwt.verify(token, SECRET);
-        return res.json({ 
-          isLoggedIn: true,
-          userId: decoded.id,
-          username: decoded.username
-        });
-      }
-    } catch (err) {
-      console.error('Token verification error:', err);
+    console.error('Delete account error:', err);
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Invalid token' });
     }
-    
-    res.json({ isLoggedIn: false });
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
 
-router.get('/user-info', isAuthenticated, (req, res) => {
-  res.json({
-    userId: req.user.id || req.user._id,
-    username: req.user.username || req.user.displayName,
-    email: req.user.email
-  });
+// Store password reset tokens with their expiration
+const resetTokenStore = new Map();
+
+// =================== REQUEST PASSWORD RESET ===================
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    // Check if user with this email exists
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'No account found with that email address.' });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(20).toString('hex');
+    const resetCode = generateOTP(); // 6-digit code for user to enter
+    
+    // Store token and code with expiration (1 hour)
+    resetTokenStore.set(resetToken, {
+      email,
+      code: resetCode,
+      expiresAt: Date.now() + 60 * 60 * 1000 // 1 hour
+    });
+
+    // For development, log reset code to console
+    if (DEV_MODE) {
+      console.log('DEV MODE - Generated Reset Code:', resetCode, 'for email:', email);
+      console.log('DEV MODE - Reset Token:', resetToken);
+    }
+
+    // Skip email sending only if transporter is not available
+    if (!transporter) {
+      return res.status(200).json({ 
+        message: 'Reset instructions generated successfully (check server console for code)',
+        resetToken,
+        ...(DEV_MODE && { devResetCode: resetCode }) // Include code in response for dev mode only
+      });
+    }
+
+    // Send email with reset instructions
+    try {
+      const mailOptions = {
+        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        to: email,
+        subject: 'Password Reset - thirav.ai',
+        html: `
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Password Reset</title>
+            <style>
+              body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 600px;
+                margin: 0 auto;
+                padding: 20px;
+              }
+              .email-container {
+                border-radius: 8px;
+                overflow: hidden;
+                border: 1px solid #e0e0e0;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+              }
+              .email-header {
+                background-color: #007bff;
+                color: white;
+                padding: 20px;
+                text-align: center;
+              }
+              .email-header h1 {
+                margin: 0;
+                font-size: 24px;
+              }
+              .email-body {
+                background-color: #ffffff;
+                padding: 30px;
+              }
+              .reset-code {
+                font-size: 32px;
+                font-weight: bold;
+                letter-spacing: 4px;
+                text-align: center;
+                margin: 20px 0;
+                color: #007bff;
+                padding: 10px;
+                background-color: #f8f9fa;
+                border-radius: 4px;
+              }
+              .email-footer {
+                background-color: #f8f9fa;
+                padding: 15px;
+                text-align: center;
+                font-size: 12px;
+                color: #666;
+              }
+              p {
+                margin-bottom: 15px;
+              }
+              .expiry-notice {
+                color: #dc3545;
+                font-size: 14px;
+                margin-top: 15px;
+              }
+              .logo {
+                font-size: 26px;
+                font-weight: bold;
+                margin-bottom: 10px;
+              }
+              .logo span {
+                color:rgb(0, 0, 0);
+              }
+            </style>
+          </head>
+          <body>
+            <div class="email-container">
+              <div class="email-header">
+                <div class="logo">thirav<span>.ai</span></div>
+                <h1>Password Reset</h1>
+              </div>
+              <div class="email-body">
+                <p>Hello,</p>
+                <p>We received a request to reset your password for your thirav.ai account. Please use the verification code below:</p>
+                
+                <div class="reset-code">${resetCode}</div>
+                
+                <p>Enter this code on the password reset page.</p>
+                <p class="expiry-notice">This code will expire in 1 hour for security reasons.</p>
+                <p>If you did not request this password reset, please ignore this email or contact support if you have concerns.</p>
+              </div>
+              <div class="email-footer">
+                <p>&copy; ${new Date().getFullYear()} thirav.ai. All rights reserved.</p>
+                <p>This is an automated message, please do not reply to this email.</p>
+              </div>
+            </div>
+          </body>
+          </html>
+        `
+      };
+
+      await transporter.sendMail(mailOptions);
+      console.log('Password reset email sent successfully to', email);
+      
+      res.status(200).json({ 
+        message: 'Password reset instructions sent to your email.',
+        resetToken,
+        ...(DEV_MODE && { devResetCode: resetCode }) // Include code in response for dev mode only
+      });
+    } catch (emailError) {
+      console.error('Email sending error:', emailError);
+      
+      // If email sending fails but we're in dev mode, still return success with reset code
+      if (DEV_MODE) {
+        return res.status(200).json({ 
+          message: 'Generated reset code but email sending failed. Check server logs.',
+          resetToken,
+          devResetCode: resetCode
+        });
+      } else {
+        return res.status(500).json({ message: 'Failed to send password reset email' });
+      }
+    }
+  } catch (err) {
+    console.error('Password Reset Error:', err);
+    res.status(500).json({ message: 'Failed to process password reset request', error: err.message });
+  }
+});
+
+// =================== VERIFY RESET CODE & SET NEW PASSWORD ===================
+router.post('/reset-password', async (req, res) => {
+  const { resetToken, resetCode, newPassword } = req.body;
+
+  try {
+    // Validate reset token and code
+    const resetData = resetTokenStore.get(resetToken);
+    
+    if (!resetData) {
+      return res.status(400).json({ message: 'Invalid or expired reset token. Please request a new password reset.' });
+    }
+
+    if (resetData.expiresAt < Date.now()) {
+      // Clean up expired token
+      resetTokenStore.delete(resetToken);
+      return res.status(400).json({ message: 'Reset token expired. Please request a new password reset.' });
+    }
+
+    if (resetData.code !== resetCode) {
+      return res.status(400).json({ message: 'Invalid reset code. Please try again.' });
+    }
+
+    // Token and code are valid, update the user's password
+    const user = await User.findOne({ email: resetData.email });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Hash the new password
+    const hash = await bcrypt.hash(newPassword, 10);
+    user.password = hash;
+    await user.save();
+
+    // Clean up used reset token
+    resetTokenStore.delete(resetToken);
+
+    // Generate JWT token for auto-login
+    const token = generateToken(user);
+    
+    res.status(200).json({
+      message: 'Password reset successful',
+      token,
+      user: { 
+        id: user._id, 
+        username: user.username, 
+        email: user.email 
+      }
+    });
+  } catch (err) {
+    console.error('Password Reset Error:', err);
+    res.status(500).json({ message: 'Failed to reset password', error: err.message });
+  }
 });
 
 module.exports = router;
