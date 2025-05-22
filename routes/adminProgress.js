@@ -9,6 +9,8 @@ const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const authenticateJWT = require('../middleware/auth'); // Import your JWT middleware
+const authorizeAdmin = require('../middleware/authorizeAdmin'); // Import admin authorization middleware
 require('dotenv').config();
 
 // Environment configuration
@@ -22,42 +24,20 @@ const adminLimiter = rateLimit({
 });
 router.use(adminLimiter);
 
-// Admin authentication middleware
-const adminAuth = async (req, res, next) => {
+// Admin logging middleware to track admin actions
+const logAdminAuth = async (req, res, next) => {
   try {
-    // Find the current user by cookie or token
-    const userId = req.cookies.userId || req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) return res.status(401).json({ error: 'User not found' });
-
-    // Check if user ID matches ADMIN_USER_ID from .env
-    if (user._id.toString() !== process.env.ADMIN_USER_ID) {
-      // Log unauthorized access attempt
-      await new AdminLog({
-        actionType: 'AUTH_FAILURE',
-        userId: user._id,
-        details: 'Attempted to access admin area without ADMIN_USER_ID',
-        ipAddress: req.ip,
-        userAgent: req.get('User-Agent')
-      }).save();
-
-      return res.status(403).json({ error: 'Forbidden: Admin access required' });
-    }
-
-    // User is authorized admin
+    // Set admin user info for logging
     req.adminUser = {
-      id: user._id,
-      email: user.email,
-      username: user.username
+      id: req.user._id,
+      email: req.user.email,
+      username: req.user.username
     };
 
+    // Log successful admin access
     await new AdminLog({
       actionType: 'AUTH_SUCCESS',
-      userId: user._id,
+      userId: req.user._id,
       details: `Admin user accessed ${req.originalUrl}`,
       ipAddress: req.ip,
       userAgent: req.get('User-Agent')
@@ -65,8 +45,14 @@ const adminAuth = async (req, res, next) => {
 
     next();
   } catch (err) {
-    console.error('Error in admin authentication:', err);
-    return res.status(500).json({ error: 'Internal server error during authentication' });
+    console.error('Error in admin logging:', err);
+    // Don't block the request if logging fails
+    req.adminUser = {
+      id: req.user._id,
+      email: req.user.email,
+      username: req.user.username
+    };
+    next();
   }
 };
 
@@ -89,7 +75,10 @@ const logAdminAction = async (req, res, next) => {
   next();
 };
 
-router.use(adminAuth);
+// Apply JWT authentication first, then admin authorization, then logging
+router.use(authenticateJWT);
+router.use(authorizeAdmin);
+router.use(logAdminAuth);
 router.use(logAdminAction);
 
 // Initialize email transporter

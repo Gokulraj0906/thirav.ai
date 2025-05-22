@@ -43,9 +43,9 @@ app.use((req, res, next) => {
 
 // Public routes (no authentication required)
 app.use('/auth', authRoutes); // Login/Signup returns JWT
+app.use('/course', courseRoutes);
 
 // Protected routes (JWT authentication required)
-app.use('/course', courseRoutes);
 app.use('/api/enrollment', authenticateJWT, enrollmentRoutes);
 app.use('/api/progress', authenticateJWT, progressRoutes);
 app.use('/admin', authenticateJWT, adminRoutes);
@@ -79,8 +79,6 @@ app.get('/', (req, res) => {
     </html>
   `);
 });
-
-
 
 // Protected dashboard route
 app.get('/dashboard', authenticateJWT, (req, res) => {

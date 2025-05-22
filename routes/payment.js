@@ -7,10 +7,10 @@ const razorpay = require('../config/razorpay');
 const Course = require('../models/Course');
 const Payment = require('../models/Payment');
 
-router.post('/create-order', async (req, res) => {
+router.post('/create-order', authMiddleware, async (req, res) => {
   try {
-    const userId = req.body.userId || req.query.userId;
-    const { courseId } = req.body;
+    const userId = req.user._id || req.query.userId;
+    const { courseId } = req.body || req.query;
 
     if (!courseId) {
       return res.status(400).json({ error: 'Course ID is required' });
@@ -57,7 +57,7 @@ router.post('/create-order', async (req, res) => {
 });
 
 // Verify Payment
-router.post('/verify', async (req, res) => {
+router.post('/verify', authMiddleware, async (req, res) => {
   try {
     const {
       razorpay_order_id,
@@ -101,10 +101,10 @@ router.post('/verify', async (req, res) => {
 });
 
 // Check if user has access to course
-router.get('/check-access/:courseId', async (req, res) => {
+router.get('/check-access/:courseId', authMiddleware, async (req, res) => {
   try {
-    const { courseId } = req.params || req.query.userId;
-    const userId = req.query.userId;
+    const { courseId } = req.params;
+    const userId = req.user._id;
 
     const payment = await Payment.findOne({
       user: userId,

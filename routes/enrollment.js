@@ -5,9 +5,11 @@ const Enrollment = require('../models/Enrollment');
 const UserProgress = require('../models/UserProgress');
 const Course = require('../models/Course');
 const Payment = require('../models/Payment');
+const authenticateJWT = require('../middleware/auth');
+
 
 // Check if user is enrolled
-router.get('/check', async (req, res) => {
+router.get('/check', authenticateJWT, async (req, res) => {
   const { userId, courseId } = req.query;
   
   if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
@@ -28,7 +30,7 @@ router.get('/check', async (req, res) => {
 });
 
 //Enroll a user ONLY after successful payment
-router.post('/enroll', async (req, res) => {
+router.post('/enroll', authenticateJWT, async (req, res) => {
   const { courseId, userId } = req.body || req.query;
 
   if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {

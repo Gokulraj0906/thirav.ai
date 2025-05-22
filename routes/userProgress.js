@@ -3,6 +3,8 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const UserProgress = require('../models/UserProgress');
 const VideoProgress = require('../models/VideoProgress');
+const authenticateJWT = require('../middleware/auth');
+
 
 async function updateOverallProgress(userId, courseId) {
   try {
@@ -31,7 +33,7 @@ async function updateOverallProgress(userId, courseId) {
 }
 
 // Update course or video progress
-router.post('/update', async (req, res) => {
+router.post('/update', authenticateJWT, async (req, res) => {
   const {
     userId,
     courseId,
@@ -153,7 +155,7 @@ router.post('/update', async (req, res) => {
 });
 
 // Reset video progress
-router.post('/reset-video', async (req, res) => {
+router.post('/reset-video', authenticateJWT, async (req, res) => {
   const { userId, courseId, videoId } = req.body || req.query;
 
   if (!userId || !courseId || !videoId) {
@@ -185,13 +187,12 @@ router.post('/reset-video', async (req, res) => {
 });
 
 // Get user progress
-router.get('/get', async (req, res) => {
-  const { userId, courseId } = req.query;
+router.get('/get', authenticateJWT, async (req, res) => {
+  const { courseId } = req.query;
 
-  if (!userId) return res.status(400).json({ error: 'Missing userId' });
   if (!courseId) return res.status(400).json({ error: 'Missing courseId' });
-  if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(courseId)) {
-    return res.status(400).json({ error: 'Invalid user or course ID' });
+  if (!mongoose.Types.ObjectId.isValid(courseId)) {
+    return res.status(400).json({ error: 'Invalid course ID' });
   }
 
   try {
