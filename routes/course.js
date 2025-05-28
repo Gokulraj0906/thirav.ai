@@ -72,7 +72,6 @@ router.post('/create', authenticateJWT, authorizeAdmin, async (req, res) => {
           description: video.description,
           url: video.url,
           duration: video.duration,
-          faceDetectionLogs: []
         })),
       })),
     });
@@ -89,7 +88,7 @@ router.post('/create', authenticateJWT, authorizeAdmin, async (req, res) => {
 // Get all courses
 router.get('/courses', authenticateJWT, async (req, res) => {
   try {
-    const courses = await Course.find({}, 'title description price totalMinutes sections faceDetectionEnabled');
+    const courses = await Course.find({}, 'title description price totalMinutes sections');
     res.status(200).json({ courses });
   } catch (error) {
     console.error('Error fetching courses:', error);
@@ -112,7 +111,7 @@ router.get('/:id', authenticateJWT, async (req, res) => {
 // Full update course by ID (replace entire course data)
 router.put('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   try {
-    const { title, description, price, sections, faceDetectionEnabled, faceDetectionThreshold } = req.body;
+    const { title, description, price, sections } = req.body;
 
     if (!title || typeof price !== 'number' || !Array.isArray(sections)) {
       return res.status(400).json({ message: 'Missing or invalid fields' });
@@ -132,8 +131,6 @@ router.put('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
         description,
         price,
         totalMinutes,
-        faceDetectionEnabled: faceDetectionEnabled !== undefined ? faceDetectionEnabled : true,
-        faceDetectionThreshold: faceDetectionThreshold !== undefined ? faceDetectionThreshold : 0.8,
         sections: sections.map(section => ({
           sectionTitle: section.sectionTitle,
           videos: section.videos.map(video => ({
@@ -141,7 +138,6 @@ router.put('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
             description: video.description,
             url: video.url,
             duration: video.duration,
-            faceDetectionLogs: video.faceDetectionLogs || []
           })),
         })),
       },
