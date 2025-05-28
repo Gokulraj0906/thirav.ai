@@ -34,9 +34,18 @@ const userProgressSchema = new mongoose.Schema({
     enum: ['not started', 'in progress', 'completed'],
     default: 'not started'
   },
-  lastUpdated: {
-    type: Date,
-    default: Date.now
+  faceSimilarityScore: {
+  type: Number,
+  min: 0,
+  max: 1
+},
+faceNotFound: {
+  type: Boolean,
+  default: false
+},
+lastUpdated: {
+  type: Date,
+  default: Date.now
   }
 });
 

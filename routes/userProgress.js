@@ -5,7 +5,7 @@ const UserProgress = require('../models/UserProgress');
 const VideoProgress = require('../models/VideoProgress');
 const authenticateJWT = require('../middleware/auth');
 
-
+// Helper function to update overall course progress based on video progresses
 async function updateOverallProgress(userId, courseId) {
   try {
     const videoProgressRecords = await VideoProgress.find({ userId, courseId });
@@ -23,7 +23,12 @@ async function updateOverallProgress(userId, courseId) {
 
     userProgress.completedMinutes = totalCompleted;
     userProgress.progress = progressPercent;
-    userProgress.status = progressPercent === 100 ? 'completed' : progressPercent > 0 ? 'in progress' : 'not started';
+    userProgress.status =
+      progressPercent === 100
+        ? 'completed'
+        : progressPercent > 0
+        ? 'in progress'
+        : 'not started';
     userProgress.lastUpdated = new Date();
 
     await userProgress.save();
@@ -32,7 +37,7 @@ async function updateOverallProgress(userId, courseId) {
   }
 }
 
-// Update course or video progress
+// Update course or video progress and optionally face similarity data
 router.post('/update', authenticateJWT, async (req, res) => {
   const {
     userId,
@@ -43,6 +48,8 @@ router.post('/update', authenticateJWT, async (req, res) => {
     totalProgress,
     totalMinutes,
     watchedMinutes,
+    faceSimilarityScore,
+    faceNotFound,
   } = req.body || req.query;
 
   if (!userId) return res.status(400).json({ error: 'Missing userId' });
@@ -78,6 +85,17 @@ router.post('/update', authenticateJWT, async (req, res) => {
           : 'not started';
       userProgress.lastUpdated = new Date();
 
+      // Update face similarity data if present
+      if (faceSimilarityScore != null) {
+        if (faceSimilarityScore < 0 || faceSimilarityScore > 1) {
+          return res.status(400).json({ error: 'faceSimilarityScore must be between 0 and 1' });
+        }
+        userProgress.faceSimilarityScore = faceSimilarityScore;
+      }
+      if (faceNotFound != null) {
+        userProgress.faceNotFound = faceNotFound;
+      }
+
       await userProgress.save();
 
       return res.json({ message: 'Course progress incremented', progress: userProgress });
@@ -98,17 +116,28 @@ router.post('/update', authenticateJWT, async (req, res) => {
           ? 'in progress'
           : 'not started';
 
+      const updateFields = {
+        completedMinutes: completedMins,
+        totalMinutes,
+        progress: progressPercent,
+        status,
+        lastUpdated: new Date(),
+      };
+
+      // Add face similarity data if present
+      if (faceSimilarityScore != null) {
+        if (faceSimilarityScore < 0 || faceSimilarityScore > 1) {
+          return res.status(400).json({ error: 'faceSimilarityScore must be between 0 and 1' });
+        }
+        updateFields.faceSimilarityScore = faceSimilarityScore;
+      }
+      if (faceNotFound != null) {
+        updateFields.faceNotFound = faceNotFound;
+      }
+
       const userProgress = await UserProgress.findOneAndUpdate(
         { userId, courseId },
-        {
-          $set: {
-            completedMinutes: completedMins,
-            totalMinutes,
-            progress: progressPercent,
-            status,
-            lastUpdated: new Date(),
-          },
-        },
+        { $set: updateFields },
         { new: true, upsert: true }
       );
 
@@ -142,7 +171,23 @@ router.post('/update', authenticateJWT, async (req, res) => {
         { new: true, upsert: true }
       );
 
+      // Update overall course progress after video update
       await updateOverallProgress(userId, courseId);
+
+      // Also update face similarity data on the main UserProgress if provided
+      const userProgress = await UserProgress.findOne({ userId, courseId });
+      if (userProgress) {
+        if (faceSimilarityScore != null) {
+          if (faceSimilarityScore < 0 || faceSimilarityScore > 1) {
+            return res.status(400).json({ error: 'faceSimilarityScore must be between 0 and 1' });
+          }
+          userProgress.faceSimilarityScore = faceSimilarityScore;
+        }
+        if (faceNotFound != null) {
+          userProgress.faceNotFound = faceNotFound;
+        }
+        await userProgress.save();
+      }
 
       return res.json({ message: 'Video progress updated', progress: videoProgress });
     }
@@ -165,13 +210,7 @@ router.post('/reset-video', authenticateJWT, async (req, res) => {
     return res.status(400).json({ error: 'Invalid user or course ID' });
   }
 
-  if (!videoId) return res.status(400).json({ error: 'Missing videoId' });
-
   try {
-    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(courseId) || !videoId) {
-      return res.status(400).json({ error: 'Invalid parameters' });
-    }
-
     await VideoProgress.findOneAndUpdate(
       { userId, courseId, videoId },
       { $set: { completedMinutes: 0, progress: 0 } }
@@ -186,8 +225,9 @@ router.post('/reset-video', authenticateJWT, async (req, res) => {
   }
 });
 
-// Get user progress
+// Get user progress for a course
 router.get('/get', authenticateJWT, async (req, res) => {
+  const { userId } = req; // Assuming userId comes from auth middleware (like req.userId)
   const { courseId } = req.query;
 
   if (!courseId) return res.status(400).json({ error: 'Missing courseId' });
@@ -196,10 +236,6 @@ router.get('/get', authenticateJWT, async (req, res) => {
   }
 
   try {
-    if (!mongoose.Types.ObjectId.isValid(userId) || !mongoose.Types.ObjectId.isValid(courseId)) {
-      return res.status(400).json({ error: 'Invalid parameters' });
-    }
-
     const progress = await UserProgress.findOne({ userId, courseId });
     const videoProgress = await VideoProgress.find({ userId, courseId });
 
@@ -208,7 +244,9 @@ router.get('/get', authenticateJWT, async (req, res) => {
       completedMinutes: progress?.completedMinutes || 0,
       totalMinutes: progress?.totalMinutes || 0,
       status: progress?.status || 'not started',
-      videoProgress
+      faceSimilarityScore: progress?.faceSimilarityScore || null,
+      faceNotFound: progress?.faceNotFound || false,
+      videoProgress,
     });
   } catch (err) {
     console.error('Error getting progress:', err);
