@@ -5,12 +5,13 @@ const router = express.Router();
 const authMiddleware = require('../middleware/auth');
 const razorpay = require('../config/razorpay');
 const Course = require('../models/Course');
+const Coupon = require('../models/Coupon');
 const Payment = require('../models/Payment');
 
 router.post('/create-order', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user._id || req.query.userId;
-    const { courseId } = req.body || req.query;
+    const userId = req.user._id;
+    const { courseId, couponCode } = req.body;
 
     if (!courseId) {
       return res.status(400).json({ error: 'Course ID is required' });
@@ -21,32 +22,54 @@ router.post('/create-order', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Course not found' });
     }
 
-    const amountInPaise = course.price * 100;
+    let finalPrice = course.price;
+    let appliedCoupon = null;
+
+    // Apply coupon if provided
+    if (couponCode) {
+      const coupon = await Coupon.findOne({ code: couponCode });
+
+      if (!coupon) {
+        return res.status(400).json({ error: 'Invalid coupon code' });
+      }
+
+      if (coupon.expiresAt < new Date()) {
+        return res.status(400).json({ error: 'Coupon has expired' });
+      }
+
+      if (coupon.usedCount >= coupon.maxUses) {
+        return res.status(400).json({ error: 'Coupon usage limit reached' });
+      }
+
+      finalPrice = finalPrice - (finalPrice * (coupon.discountPercentage / 100));
+      appliedCoupon = coupon;
+    }
+
+    const amountInPaise = Math.round(finalPrice * 100);
 
     const receiptId = `receipt_${courseId.toString().slice(-6)}_${Date.now().toString().slice(-6)}`;
 
-    const options = {
+    const order = await razorpay.orders.create({
       amount: amountInPaise,
       currency: 'INR',
       receipt: receiptId,
       payment_capture: 1,
-    };
-
-    const order = await razorpay.orders.create(options);
+    });
 
     const payment = new Payment({
       user: userId,
       course: courseId,
       razorpayOrderId: order.id,
-      amount: course.price,
+      amount: finalPrice,
       status: 'pending',
+      coupon: appliedCoupon ? appliedCoupon._id : null,
     });
 
     await payment.save();
 
     res.status(200).json({
       orderId: order.id,
-      amount: course.price,
+      amount: finalPrice,
       currency: 'INR',
       key: process.env.RAZORPAY_KEY_ID,
     });
@@ -56,14 +79,9 @@ router.post('/create-order', authMiddleware, async (req, res) => {
   }
 });
 
-// Verify Payment
 router.post('/verify', authMiddleware, async (req, res) => {
   try {
-    const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-    } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return res.status(400).json({ error: 'Missing payment verification data' });
@@ -77,17 +95,19 @@ router.post('/verify', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Invalid payment signature' });
     }
 
-    const payment = await Payment.findOneAndUpdate(
-      { razorpayOrderId: razorpay_order_id },
-      {
-        razorpayPaymentId: razorpay_payment_id,
-        status: 'success',
-      },
-      { new: true }
-    );
+    const payment = await Payment.findOne({ razorpayOrderId: razorpay_order_id });
 
     if (!payment) {
       return res.status(404).json({ error: 'Payment record not found' });
+    }
+
+    payment.razorpayPaymentId = razorpay_payment_id;
+    payment.status = 'success';
+    await payment.save();
+
+    // Increment coupon usage only after successful payment
+    if (payment.coupon) {
+      await Coupon.findByIdAndUpdate(payment.coupon, { $inc: { usedCount: 1 } });
     }
 
     res.status(200).json({

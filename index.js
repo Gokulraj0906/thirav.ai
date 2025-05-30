@@ -115,4 +115,4 @@ mongoose.connect(process.env.MONGO_URI)
       console.log(`Swagger docs available at http://localhost:${PORT}/api-docs`);
     });
   })
-  .catch(err => console.error('❌ MongoDB connection error:', err));
+  .catch(err => console.error('MongoDB connection error:', err));

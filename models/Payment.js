@@ -10,7 +10,9 @@ const PaymentSchema = new mongoose.Schema({
     type: String,
     enum: ['pending', 'success', 'failed'],
     default: 'pending'
-  }
+  },
+  // in Payment schema
+coupon: { type: mongoose.Schema.Types.ObjectId, ref: 'Coupon', required: false },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Payment', PaymentSchema);

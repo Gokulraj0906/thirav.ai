@@ -5,6 +5,7 @@ const User = require('../models/User');
 const Course = require('../models/Course');
 const Enrollment = require('../models/Enrollment');
 const AdminLog = require('../models/AdminLog');
+const Coupon = require('../models/Coupon');
 const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
@@ -180,7 +181,7 @@ router.get('/test-email', async (req, res) => {
 });
 
 // Grant course access
-router.post('/grant-access', async (req, res) => {
+router.post('/grant-access', authenticateJWT, authorizeAdmin, async (req, res) => {
   const { email, courseName, courseId } = req.body;
   
   if (!email || (!courseName && !courseId)) {
@@ -487,7 +488,7 @@ This is an automated message, please do not reply to this email.
 });
 
 // Get all user progress
-router.get('/progress-review', async (req, res) => {
+router.get('/progress-review', authenticateJWT, authorizeAdmin, async (req, res) => {
   try {
     const data = await UserProgress.find()
       .populate('userId', 'email username')
@@ -496,6 +497,62 @@ router.get('/progress-review', async (req, res) => {
   } catch (err) {
     console.error('Fetch progress error:', err);
     res.status(500).json({ error: 'Failed to fetch user progress' });
+  }
+});
+
+router.post("/create-coupon", authenticateJWT, authorizeAdmin, async (req, res) => {
+  const { code, discountPercentage, expiresAt, maxUses } = req.body;
+
+  if (!code || !discountPercentage || !expiresAt || !maxUses) {
+    return res.status(400).json({ error: "All fields are required" });
+  }
+
+  try {
+    const existing = await Coupon.findOne({ code });
+    if (existing) return res.status(400).json({ error: "Coupon code already exists" });
+
+    const coupon = new Coupon({
+      code: code.toUpperCase(),
+      discountPercentage,
+      expiresAt,
+      maxUses
+    });
+
+    await coupon.save();
+    res.status(201).json({ message: "Coupon created successfully", coupon });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.get("/coupons", authenticateJWT, authorizeAdmin, async (req, res) => {
+  try {
+    const now = new Date();
+
+    const coupons = await Coupon.find({
+      expiresAt: { $gt: now }
+    });
+
+    const couponDetails = coupons.map(coupon => {
+      const usedCount = coupon.usedCount || 0;
+      const remainingUses = Math.max(coupon.maxUses - usedCount, 0);
+
+      return {
+        code: coupon.code,
+        discountPercentage: coupon.discountPercentage,
+        expiresAt: coupon.expiresAt,
+        totalUses: usedCount,
+        maxUses: coupon.maxUses,
+        remainingUses,
+      };
+    });
+
+    res.json(couponDetails);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch active coupons" });
   }
 });
 

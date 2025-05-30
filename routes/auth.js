@@ -5,6 +5,7 @@ const User = require('../models/User');
 const router = express.Router();
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const passport = require('../auth/passport');
 
 require('dotenv').config();
 const SECRET = process.env.JWT_SECRET;
@@ -848,5 +849,22 @@ router.post('/reset-password', async (req, res) => {
     res.status(500).json({ message: 'Failed to reset password', error: err.message });
   }
 });
+
+//Google OAuth Routes
+router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+
+router.get('/google/callback', passport.authenticate('google', { session: false }), (req, res) => {
+  const token = jwt.sign({ id: req.user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  res.redirect(`${process.env.CLIENT_URL}/oauth-success?token=${token}`);
+});
+
+// GitHub OAuth Routes
+router.get('/github', passport.authenticate('github', { scope: ['user:email'] }));
+
+router.get('/github/callback', passport.authenticate('github', { session: false }), (req, res) => {
+  const token = jwt.sign({ id: req.user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  res.redirect(`${process.env.CLIENT_URL}/oauth-success?token=${token}`);
+});
+
 
 module.exports = router;

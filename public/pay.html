@@ -1,87 +1,110 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Razorpay Payment Demo</title>
+  <title>Course Payment</title>
 </head>
 <body>
-  <h2>Buy Course</h2>
-  <input type="text" id="courseId" placeholder="Enter Course ID" />
-  <button id="payBtn">Pay Now</button>
- <video width="600" controls>
-  <source src="https://s3.amazonaws.com/thirav.ai/videos/afae4e53-c60e-4562-a51f-9101fde201b8.mp4" type="video/mp4" />
-  Your browser does not support the video tag.
-</video>
+  <h1>Login to Continue</h1>
+  <form id="loginForm">
+    <input type="email" id="email" placeholder="Email" required /><br />
+    <input type="password" id="password" placeholder="Password" required /><br />
+    <button type="submit">Login</button>
+  </form>
 
-  <div id="message"></div>
+  <div id="paymentSection" style="display: none;">
+    <h2>Pay for Course</h2>
+    <input type="text" id="courseId" placeholder="Course ID" required /><br />
+    <input type="text" id="couponCode" placeholder="Coupon Code (optional)" /><br />
+    <button id="payButton">Pay Now</button>
+  </div>
 
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script>
-    const payBtn = document.getElementById('payBtn');
-    const messageDiv = document.getElementById('message');
+    let token = '';
 
-    payBtn.addEventListener('click', async () => {
-      const courseId = document.getElementById('courseId').value.trim();
-      if (!courseId) {
-        messageDiv.innerText = 'Please enter a Course ID';
-        return;
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      const res = await fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        token = data.token;
+        alert('Login successful!');
+        document.getElementById('paymentSection').style.display = 'block';
+        document.getElementById('loginForm').style.display = 'none';
+      } else {
+        alert('Login failed: ' + data.message);
+      }
+    });
+
+    document.getElementById('payButton').addEventListener('click', async () => {
+      const courseId = document.getElementById('courseId').value;
+      const couponCode = document.getElementById('couponCode').value;
+
+      const response = await fetch('/payment/create-order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ courseId, couponCode }),
+      });
+
+      const orderData = await response.json();
+
+      if (!response.ok) {
+        return alert('Error: ' + orderData.error);
       }
 
-      try {
-        // Call backend to create order
-        const orderRes = await fetch('/payment/create-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ courseId }),
-        });
-        const orderData = await orderRes.json();
+      const options = {
+        key: orderData.key,
+        amount: orderData.amount * 100,
+        currency: 'INR',
+        name: "Course Platform",
+        description: "Course Payment",
+        order_id: orderData.orderId,
+        prefill: {
+          name: "Test User", // You can optionally replace this with real user data
+          email: document.getElementById('email').value,
+        },
+        handler: async function (response) {
+          const verifyRes = await fetch('/payment/verify', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            }),
+          });
 
-        if (!orderRes.ok) {
-          messageDiv.innerText = `Order creation failed: ${orderData.error || 'Unknown error'}`;
-          return;
+          const verifyData = await verifyRes.json();
+
+          if (verifyRes.ok) {
+            alert('Payment Successful for course ID: ' + verifyData.courseId);
+          } else {
+            alert('Payment verification failed: ' + verifyData.error);
+          }
+        },
+        theme: {
+          color: '#3399cc'
         }
+      };
 
-        // Open Razorpay checkout
-        const options = {
-          key: orderData.key, // Razorpay Key ID from backend
-          amount: orderData.amount * 100, // in paise
-          currency: orderData.currency,
-          order_id: orderData.orderId,
-          handler: async function (response) {
-            // On payment success, send details to backend for verification
-            const verifyRes = await fetch('/payment/verify', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-              }),
-            });
-
-            const verifyData = await verifyRes.json();
-            if (verifyRes.ok) {
-              messageDiv.innerText = `Payment Successful! Course ID: ${verifyData.courseId}`;
-            } else {
-              messageDiv.innerText = `Payment verification failed: ${verifyData.error || 'Unknown error'}`;
-            }
-          },
-          prefill: {
-            name: 'Your Name',
-            email: 'your.email@example.com',
-          },
-          theme: {
-            color: '#3399cc',
-          },
-        };
-
-        const rzp = new Razorpay(options);
-        rzp.open();
-
-      } catch (error) {
-        messageDiv.innerText = 'Error processing payment: ' + error.message;
-      }
+      const rzp = new Razorpay(options);
+      rzp.open();
     });
   </script>
 </body>
