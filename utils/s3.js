@@ -81,9 +81,7 @@ class S3Service {
         Key: filename
       };
 
-      console.log('Deleting from S3:', deleteParams);
       const result = await s3.deleteObject(deleteParams).promise();
-      console.log('S3 delete successful for:', filename);
       return result;
     } catch (error) {
       console.error('S3 delete error:', error);
