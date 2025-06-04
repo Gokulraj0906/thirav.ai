@@ -14,6 +14,8 @@ const progressRoutes = require('./routes/userProgress');
 const paymentRoutes = require('./routes/payment');
 
 const authenticateJWT = require('./middleware/auth'); // JWT middleware
+const certificateRoutes = require('./routes/certificateRoutes'); // Certificate routes
+
 
 const swaggerDocument = YAML.load('./docs/swagger.yaml');
 const app = express();
@@ -50,6 +52,7 @@ app.use('/api/enrollment', authenticateJWT, enrollmentRoutes);
 app.use('/api/progress', authenticateJWT, progressRoutes);
 app.use('/admin', authenticateJWT, adminRoutes);
 app.use('/payment', authenticateJWT, paymentRoutes);
+app.use('/certificates', authenticateJWT, certificateRoutes);
 
 // Public homepage
 app.get('/', (req, res) => {

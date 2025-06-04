@@ -1,34 +1,64 @@
-// utils/sendEmail.js
 const nodemailer = require('nodemailer');
+require('dotenv').config();
 
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: Number(process.env.EMAIL_PORT),
-  secure: false, // true for port 465, false for 587
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
-// Optional: Check transporter at startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('Email transporter error:', error);
-  } else {
-    console.log('Email transporter is ready');
+class EmailService {
+  constructor() {
+    this.transporter = null;
+    this.initializeTransporter();
   }
-});
 
-const sendEmail = async (to, subject, html) => {
-  const mailOptions = {
-    from: `"${process.env.SITE_NAME}" <${process.env.EMAIL_USER}>`,
-    to,
-    subject,
-    html,
-  };
+  initializeTransporter() {
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
+      try {
+        this.transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASSWORD
+          }
+        });
 
-  await transporter.sendMail(mailOptions);
-};
+        this.transporter.verify((error, success) => {
+          if (error) {
+            console.error('Email verification failed:', error);
+            this.transporter = null;
+          } else {
+            console.log('Email server is ready to send messages');
+          }
+        });
+      } catch (err) {
+        console.error('Failed to initialize email transporter:', err);
+        this.transporter = null;
+      }
+    }
+  }
 
-module.exports = sendEmail;
+  isAvailable() {
+    return this.transporter !== null;
+  }
+
+  async sendEmail({ to, subject, text }) {
+    if (!this.transporter) {
+      throw new Error('Email transporter not available');
+    }
+
+    const mailOptions = {
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to,
+      subject,
+      text
+    };
+
+    try {
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`Email sent successfully to ${to}`);
+      return { success: true, messageId: result.messageId };
+    } catch (error) {
+      console.error('Email sending error:', error);
+      throw error;
+    }
+  }
+}
+
+const emailService = new EmailService();
+module.exports = emailService;
