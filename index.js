@@ -26,7 +26,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // CORS configuration for JWT-based API
 app.use(cors({
-  origin: ['http://localhost:3001', 'http://192.168.1.7:3001'],
+  origin: ['http://localhost:5173', 'http://192.168.1.7:3001'],
   credentials: true,
 }));
 
