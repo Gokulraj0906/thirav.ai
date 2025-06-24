@@ -57,7 +57,7 @@ const logAdminAuth = async (req, res, next) => {
   }
 };
 
-app.set('trust proxy', 1);
+
 
 // Admin action logging middleware
 const logAdminAction = async (req, res, next) => {
