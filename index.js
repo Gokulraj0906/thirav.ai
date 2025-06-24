@@ -14,7 +14,7 @@ const progressRoutes = require('./routes/userProgress');
 const paymentRoutes = require('./routes/payment');
 
 const authenticateJWT = require('./middleware/auth'); // JWT middleware
-const authorizeAdmin = require('../middleware/authorizeAdmin');
+const authorizeAdmin = require('./middleware/authorizeAdmin');
 const certificateRoutes = require('./routes/certificateRoutes'); // Certificate routes
 
 
@@ -103,12 +103,9 @@ app.get('/auth/check', authenticateJWT, (req, res) => {
   });
 });
 
-app.get("/role", authenticateJWT, authorizeAdmin, (req, res) => {
-  res.json({
-    userId: req.user._id,
-    role: req.user.role,
-    message: "You are an admin"
-  });
+app.get('/role', authenticateJWT, (req, res) => {
+  const isAdmin = req.user && req.user.id === process.env.ADMIN_USER_ID;
+  res.json({ isAdmin });
 });
 
 
