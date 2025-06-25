@@ -228,17 +228,4 @@ router.get('/completed-courses', authenticateJWT, async (req, res) => {
   }
 });
 
-// ❌ This must come AFTER all specific GET routes
-router.get('/:id', authenticateJWT, async (req, res) => {
-  try {
-    const course = await Course.findById(req.params.id);
-    if (!course) return res.status(404).json({ message: 'Course not found' });
-    res.status(200).json(course);
-  } catch (error) {
-    console.error('Error fetching course:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
-
 module.exports = router;
