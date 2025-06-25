@@ -6,6 +6,7 @@ const Course = require('../models/Course');
 const s3 = require('../utils/s3');
 const authenticateJWT = require('../middleware/auth');
 const authorizeAdmin = require('../middleware/authorizeAdmin');
+const UserProgress = require('../models/UserProgress');
 // Multer config
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 1000000000 } });
@@ -193,6 +194,32 @@ router.delete('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
     res.status(200).json({ message: 'Course deleted successfully' });
   } catch (error) {
     console.error('Course deletion error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+router.get('/completed-courses', authenticateJWT, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const completedProgress = await UserProgress.find({
+      userId: userId,
+      status: 'completed'
+    }).populate('courseId', 'title description price totalMinutes');
+
+    const completedCourses = completedProgress.map(entry => ({
+      courseId: entry.courseId._id,
+      title: entry.courseId.title,
+      description: entry.courseId.description,
+      price: entry.courseId.price,
+      totalMinutes: entry.courseId.totalMinutes,
+      progress: entry.progress,
+      completedMinutes: entry.completedMinutes
+    }));
+
+    res.status(200).json({ completedCourses });
+  } catch (error) {
+    console.error('Error fetching completed courses:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
