@@ -198,34 +198,44 @@ router.delete('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   }
 });
 
-router.get('/courses/completed', authenticateJWT, async (req, res) => {
+// ✅ This must come first!
+router.get('/completed-courses', authenticateJWT, async (req, res) => {
   try {
     const userId = req.user?.id;
-
-    if (!userId) {
-      return res.status(401).json({ message: 'Unauthorized: User ID not found in token' });
-    }
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
     const completedProgress = await UserProgress.find({
       userId: userId,
-      status: 'completed',
+      status: 'completed'
     }).populate('courseId', 'title description price totalMinutes');
 
     const completedCourses = completedProgress
-      .filter(entry => entry.courseId) // in case course is deleted
+      .filter(entry => entry.courseId)
       .map(entry => ({
         courseId: entry.courseId._id,
         title: entry.courseId.title,
         description: entry.courseId.description,
         price: entry.courseId.price,
         totalMinutes: entry.courseId.totalMinutes,
-        completedMinutes: entry.completedMinutes,
         progress: entry.progress,
+        completedMinutes: entry.completedMinutes
       }));
 
     res.status(200).json({ completedCourses });
   } catch (error) {
     console.error('Error fetching completed courses:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// ❌ This must come AFTER all specific GET routes
+router.get('/:id', authenticateJWT, async (req, res) => {
+  try {
+    const course = await Course.findById(req.params.id);
+    if (!course) return res.status(404).json({ message: 'Course not found' });
+    res.status(200).json(course);
+  } catch (error) {
+    console.error('Error fetching course:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
