@@ -198,24 +198,30 @@ router.delete('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   }
 });
 
-router.get('/completed-courses', authenticateJWT, async (req, res) => {
+router.get('/courses/completed', authenticateJWT, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ message: 'Unauthorized: User ID not found in token' });
+    }
 
     const completedProgress = await UserProgress.find({
       userId: userId,
-      status: 'completed'
+      status: 'completed',
     }).populate('courseId', 'title description price totalMinutes');
 
-    const completedCourses = completedProgress.map(entry => ({
-      courseId: entry.courseId._id,
-      title: entry.courseId.title,
-      description: entry.courseId.description,
-      price: entry.courseId.price,
-      totalMinutes: entry.courseId.totalMinutes,
-      progress: entry.progress,
-      completedMinutes: entry.completedMinutes
-    }));
+    const completedCourses = completedProgress
+      .filter(entry => entry.courseId) // in case course is deleted
+      .map(entry => ({
+        courseId: entry.courseId._id,
+        title: entry.courseId.title,
+        description: entry.courseId.description,
+        price: entry.courseId.price,
+        totalMinutes: entry.courseId.totalMinutes,
+        completedMinutes: entry.completedMinutes,
+        progress: entry.progress,
+      }));
 
     res.status(200).json({ completedCourses });
   } catch (error) {
@@ -223,5 +229,6 @@ router.get('/completed-courses', authenticateJWT, async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 });
+
 
 module.exports = router;
