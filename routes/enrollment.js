@@ -96,4 +96,26 @@ router.post('/enroll', authenticateJWT, async (req, res) => {
   }
 });
 
+// Get list of courses the user is enrolled in
+router.get('/my-courses', authenticateJWT, async (req, res) => {
+  const userId = req.user.id; // assuming user ID is stored in the token payload
+
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).json({ message: 'Invalid user ID' });
+  }
+
+  try {
+    // Get all enrollments for the user
+    const enrollments = await Enrollment.find({ user: userId }).populate('course');
+
+    // Extract course data from populated documents
+    const enrolledCourses = enrollments.map(enroll => enroll.course);
+
+    return res.status(200).json({ courses: enrolledCourses });
+  } catch (err) {
+    console.error('Error fetching enrolled courses:', err);
+    return res.status(500).json({ message: 'Failed to fetch enrolled courses' });
+  }
+});
+
 module.exports = router;
