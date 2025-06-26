@@ -234,6 +234,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
+const mongoose = require('mongoose');
 const Course = require('../models/Course');
 const UserProgress = require('../models/UserProgress');
 const S3Service = require('../utils/s3');
@@ -244,7 +245,7 @@ const authorizeAdmin = require('../middleware/authorizeAdmin');
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
-  limits: { fileSize: 1_000_000_000 }, // 1 GB limit
+  limits: { fileSize: 1_000_000_000 }, // 1 GB
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['video/mp4', 'video/webm', 'video/mkv', 'video/quicktime'];
     if (allowedTypes.includes(file.mimetype)) cb(null, true);
@@ -252,7 +253,9 @@ const upload = multer({
   }
 });
 
-// Upload videos to S3
+/**
+ * Upload Videos to S3
+ */
 router.post('/upload-videos', authenticateJWT, authorizeAdmin, upload.any(), async (req, res) => {
   try {
     const maxCount = Number(req.body?.maxCount) || 100;
@@ -296,7 +299,41 @@ router.post('/upload-videos', authenticateJWT, authorizeAdmin, upload.any(), asy
   }
 });
 
-// Create a new course
+/**
+ * Get completed courses — this must be ABOVE /:id
+ */
+router.get('/completed-courses', authenticateJWT, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const completedProgress = await UserProgress.find({
+      userId,
+      status: 'completed',
+    }).populate('courseId', 'title description price totalMinutes');
+
+    const completedCourses = completedProgress
+      .filter(entry => entry.courseId)
+      .map(entry => ({
+        courseId: entry.courseId._id,
+        title: entry.courseId.title,
+        description: entry.courseId.description,
+        price: entry.courseId.price,
+        totalMinutes: entry.courseId.totalMinutes,
+        progress: entry.progress,
+        completedMinutes: entry.completedMinutes,
+      }));
+
+    res.status(200).json({ completedCourses });
+  } catch (error) {
+    console.error('Error fetching completed courses:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+/**
+ * Create a new course
+ */
 router.post('/create', authenticateJWT, authorizeAdmin, async (req, res) => {
   try {
     const { title, description, price, sections } = req.body;
@@ -305,12 +342,9 @@ router.post('/create', authenticateJWT, authorizeAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Missing or invalid fields' });
     }
 
-    let totalMinutes = 0;
-    sections.forEach(section => {
-      section.videos.forEach(video => {
-        totalMinutes += Number(video.duration || 0);
-      });
-    });
+    const totalMinutes = sections.reduce((total, section) => {
+      return total + section.videos.reduce((sum, video) => sum + Number(video.duration || 0), 0);
+    }, 0);
 
     const course = new Course({
       title,
@@ -329,7 +363,6 @@ router.post('/create', authenticateJWT, authorizeAdmin, async (req, res) => {
     });
 
     await course.save();
-
     res.status(201).json({ message: 'Course created successfully', courseId: course._id });
   } catch (error) {
     console.error('Course creation error:', error);
@@ -337,7 +370,9 @@ router.post('/create', authenticateJWT, authorizeAdmin, async (req, res) => {
   }
 });
 
-// Get all courses
+/**
+ * Get all courses
+ */
 router.get('/courses', authenticateJWT, async (req, res) => {
   try {
     const courses = await Course.find({}, 'title description price totalMinutes sections');
@@ -348,11 +383,20 @@ router.get('/courses', authenticateJWT, async (req, res) => {
   }
 });
 
-// Get course by ID
+/**
+ * Get course by ID
+ */
 router.get('/:id', authenticateJWT, async (req, res) => {
   try {
-    const course = await Course.findById(req.params.id);
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid course ID' });
+    }
+
+    const course = await Course.findById(id);
     if (!course) return res.status(404).json({ message: 'Course not found' });
+
     res.status(200).json(course);
   } catch (error) {
     console.error('Error fetching course:', error);
@@ -360,7 +404,9 @@ router.get('/:id', authenticateJWT, async (req, res) => {
   }
 });
 
-// Full update course by ID
+/**
+ * Full update course by ID (PUT)
+ */
 router.put('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   try {
     const { title, description, price, sections } = req.body;
@@ -369,12 +415,9 @@ router.put('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Missing or invalid fields' });
     }
 
-    let totalMinutes = 0;
-    sections.forEach(section => {
-      section.videos.forEach(video => {
-        totalMinutes += Number(video.duration || 0);
-      });
-    });
+    const totalMinutes = sections.reduce((total, section) => {
+      return total + section.videos.reduce((sum, video) => sum + Number(video.duration || 0), 0);
+    }, 0);
 
     const updatedCourse = await Course.findByIdAndUpdate(
       req.params.id,
@@ -405,20 +448,17 @@ router.put('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   }
 });
 
-// Partial update course by ID (PATCH)
+/**
+ * Partial update course by ID (PATCH)
+ */
 router.patch('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   try {
     const updates = req.body;
 
-    // If sections are updated, recalculate totalMinutes
     if (updates.sections) {
-      let totalMinutes = 0;
-      updates.sections.forEach(section => {
-        section.videos.forEach(video => {
-          totalMinutes += Number(video.duration || 0);
-        });
-      });
-      updates.totalMinutes = totalMinutes;
+      updates.totalMinutes = updates.sections.reduce((total, section) => {
+        return total + section.videos.reduce((sum, video) => sum + Number(video.duration || 0), 0);
+      }, 0);
     }
 
     const updatedCourse = await Course.findByIdAndUpdate(
@@ -436,7 +476,9 @@ router.patch('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   }
 });
 
-// Delete course by ID
+/**
+ * Delete course by ID
+ */
 router.delete('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   try {
     const deletedCourse = await Course.findByIdAndDelete(req.params.id);
@@ -449,35 +491,4 @@ router.delete('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
   }
 });
 
-// Get completed courses for the user
-router.get('/completed-courses', authenticateJWT, async (req, res) => {
-  try {
-    const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-
-    const completedProgress = await UserProgress.find({
-      userId: userId,
-      status: 'completed'
-    }).populate('courseId', 'title description price totalMinutes');
-
-    const completedCourses = completedProgress
-      .filter(entry => entry.courseId)
-      .map(entry => ({
-        courseId: entry.courseId._id,
-        title: entry.courseId.title,
-        description: entry.courseId.description,
-        price: entry.courseId.price,
-        totalMinutes: entry.courseId.totalMinutes,
-        progress: entry.progress,
-        completedMinutes: entry.completedMinutes
-      }));
-
-    res.status(200).json({ completedCourses });
-  } catch (error) {
-    console.error('Error fetching completed courses:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
 module.exports = router;
-
