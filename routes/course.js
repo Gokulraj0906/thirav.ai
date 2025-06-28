@@ -267,6 +267,7 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
 const Course = require('../models/Course');
+const User = require('../models/User');
 const UserProgress = require('../models/UserProgress');
 const S3Service = require('../utils/s3');
 const authenticateJWT = require('../middleware/auth');
@@ -523,6 +524,21 @@ router.delete('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
     res.status(200).json({ message: 'Course deleted successfully' });
   } catch (error) {
     console.error('Course deletion error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+router.get('/all-users', authenticateJWT, authorizeAdmin, async (req, res) => {
+  try {
+    const users = await User.find({}, '-password'); // exclude passwords
+    const totalUsers = await User.countDocuments(); // get count
+
+    res.status(200).json({
+      total: totalUsers,
+      users
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
