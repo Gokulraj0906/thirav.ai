@@ -397,6 +397,21 @@ router.get('/courses', authenticateJWT, async (req, res) => {
   }
 });
 
+router.get('/all-users', authenticateJWT, authorizeAdmin, async (req, res) => {
+  try {
+    const users = await User.find({}, '-password'); // exclude passwords
+    const totalUsers = await User.countDocuments(); // get count
+
+    res.status(200).json({
+      total: totalUsers,
+      users
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // --- Get Course by ID ---
 router.get('/:id', authenticateJWT, async (req, res) => {
   try {
@@ -524,21 +539,6 @@ router.delete('/:id', authenticateJWT, authorizeAdmin, async (req, res) => {
     res.status(200).json({ message: 'Course deleted successfully' });
   } catch (error) {
     console.error('Course deletion error:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
-router.get('/all-users', authenticateJWT, authorizeAdmin, async (req, res) => {
-  try {
-    const users = await User.find({}, '-password'); // exclude passwords
-    const totalUsers = await User.countDocuments(); // get count
-
-    res.status(200).json({
-      total: totalUsers,
-      users
-    });
-  } catch (error) {
-    console.error('Error fetching users:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
