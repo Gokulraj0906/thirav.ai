@@ -866,5 +866,19 @@ router.get('/github/callback', passport.authenticate('github', { session: false 
   res.redirect(`${process.env.CLIENT_URL}/oauth-success?token=${token}`);
 });
 
+router.get('/all-users', authenticateJWT, authorizeAdmin, async (req, res) => {
+  try {
+    const users = await User.find({}, '-password'); // exclude passwords
+    const totalUsers = await User.countDocuments(); // get count
+
+    res.status(200).json({
+      total: totalUsers,
+      users
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
 
 module.exports = router;
