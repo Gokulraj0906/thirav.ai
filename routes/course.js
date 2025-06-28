@@ -412,24 +412,6 @@ router.get('/all-users', authenticateJWT, authorizeAdmin, async (req, res) => {
   }
 });
 
-// --- Get Course by ID ---
-router.get('/:id', authenticateJWT, async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid course ID' });
-    }
-
-    const course = await Course.findById(id);
-    if (!course) return res.status(404).json({ message: 'Course not found' });
-
-    res.status(200).json(course);
-  } catch (error) {
-    console.error('Error fetching course:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-});
-
 // --- Completed Courses ---
 router.get('/completed-courses', authenticateJWT, async (req, res) => {
   try {
@@ -457,6 +439,25 @@ router.get('/completed-courses', authenticateJWT, async (req, res) => {
     res.status(200).json({ completedCourses });
   } catch (error) {
     console.error('Error fetching completed courses:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+
+// --- Get Course by ID ---
+router.get('/:id', authenticateJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid course ID' });
+    }
+
+    const course = await Course.findById(id);
+    if (!course) return res.status(404).json({ message: 'Course not found' });
+
+    res.status(200).json(course);
+  } catch (error) {
+    console.error('Error fetching course:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
