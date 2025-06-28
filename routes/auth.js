@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const passport = require('../auth/passport');
 const authenticateJWT = require('../middleware/auth');
+const authorizeAdmin = require('../middleware/authorizeAdmin');
 
 require('dotenv').config();
 const SECRET = process.env.JWT_SECRET;
